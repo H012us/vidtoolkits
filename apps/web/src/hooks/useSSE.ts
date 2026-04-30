@@ -47,10 +47,17 @@ export function useSSE(projectId: string | null, options: UseSSEOptions = {}) {
         }
 
         if (data.type === 'complete') {
+          const result = data.data as { success: boolean; outputPath: string | null; errors?: { message: string }[] };
           setProgress(100);
           setCurrentStep(null);
-          setLog(l => [...l, '[COMPLETE] Video rendered successfully']);
-          options.onComplete?.(data.data);
+          if (result?.success && result?.outputPath) {
+            setLog(l => [...l, '[COMPLETE] Video rendered successfully']);
+            options.onComplete?.(data.data);
+          } else {
+            const errMsg = result?.errors?.[0]?.message ?? 'Render failed — check logs';
+            setLog(l => [...l, `[ERROR] ${errMsg}`]);
+            options.onError?.(errMsg);
+          }
         }
       } catch {
         // ignore parse errors

@@ -6,11 +6,6 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     setupFiles: [resolve(__dirname, 'src/__tests__/setup.ts')],
-    include: ['src/**/*.test.ts'],
-    exclude: ['src/__tests__/routes/**/*.test.ts'],
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
-    },
+    include: ['src/__tests__/routes/**/*.test.ts'],
   },
 });

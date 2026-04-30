@@ -11,6 +11,8 @@ router.post('/:id/start', renderLimiter, validateRequest(z.object({
   params: z.object({ id: z.string().uuid() }),
 })), controller.start.bind(controller));
 router.get('/:id/status', controller.status.bind(controller));
-router.get('/:id/download', controller.download.bind(controller));
+router.get('/:id/download', validateRequest(z.object({
+  params: z.object({ id: z.string().uuid() }),
+})), controller.download.bind(controller));
 
 export { router as renderRoutes };

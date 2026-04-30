@@ -256,57 +256,116 @@ export class PipelineOrchestrator {
     const outputFile = path.join(outputDir, `${compositionsData.title.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.mp4`);
     await ensureDir(outputDir);
 
-    // Write a simple Remotion entry point that reads compositions.json
+    // Write a Remotion entry point that imports the real components from the remotion package dir
     const remotionEntry = path.join(workDir, 'remotion-entry.tsx');
     await fs.writeFile(remotionEntry, this.buildRemotionEntry(compositionsData), 'utf-8');
 
+    // Spawn a temporary Remotion preview server that bundles the entry point
+    const remotionDir = path.resolve(this.config.paths.remotionDir);
+    const server = this.spawnRemotionServer(remotionEntry, remotionDir);
+
     try {
+      // Wait for server to be ready
+      const serveUrl = await this.waitForRemotionServer(server);
+
       const { renderMedia } = await import('@remotion/renderer');
 
-      const composition = {
-        id: 'VideoComposition',
-        fps: compositionsData.fps,
-        width: compositionsData.width,
-        height: compositionsData.height,
-        durationInFrames: Math.ceil(
-          compositionsData.parts.reduce((sum, p) => sum + (p.durationSeconds ?? 0), 0) * compositionsData.fps
-        ),
-        defaultProps: { data: compositionsData },
-      } as any;
+      const totalFrames = Math.ceil(
+        compositionsData.parts.reduce((sum, p) => sum + (p.durationSeconds ?? 0), 0) * compositionsData.fps
+      );
 
       await renderMedia({
-        composition: composition as any,
-        serveUrl: 'inline',
-        entryPoint: remotionEntry,
+        serveUrl,
+        inputProps: { data: compositionsData },
+        composition: {
+          id: 'VideoComposition',
+          fps: compositionsData.fps,
+          width: compositionsData.width,
+          height: compositionsData.height,
+          durationInFrames: totalFrames,
+          defaultProps: { data: compositionsData },
+        } as any,
+        codec: 'h264',
         outputLocation: outputFile,
         concurrency,
         logLevel: 'error',
-        onProgress: (progress: number) => {
-          onProgress(Math.round(progress * 100));
+        onProgress: (progress) => {
+          // progress.progress is 0-1 fraction
+          onProgress(Math.round(progress.progress * 100));
         },
-      } as any);
+      });
 
       return outputFile;
-    } catch (err) {
-      throw new RenderError(`Remotion render failed: ${(err as Error).message}`);
+    } finally {
+      server.kill();
     }
   }
 
-  private buildRemotionEntry(data: ReturnType<typeof this.buildCompositionsData>): string {
-    const partsJson = JSON.stringify(data.parts).replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+  private spawnRemotionServer(entryPoint: string, remotionDir: string): ReturnType<typeof exec> {
+    return exec(
+      `node "${remotionDir}/node_modules/.bin/remotion" preview --entry-point "${entryPoint}" --port 0`,
+      { cwd: remotionDir }
+    );
+  }
+
+  private async waitForRemotionServer(
+    server: ReturnType<typeof exec>
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new RenderError('Remotion server failed to start within 30s'));
+      }, 30000);
+
+      server.stdout?.on('data', (chunk: Buffer) => {
+        const line = chunk.toString();
+        const match = line.match(/localhost:(\d+)/);
+        if (match) {
+          clearTimeout(timeout);
+          resolve(`http://localhost:${match[1]}`);
+        }
+      });
+
+      server.stderr?.on('data', (chunk: Buffer) => {
+        const line = chunk.toString();
+        if (line.includes('error') || line.includes('Error') || line.includes('failed')) {
+          logger.warn({ line }, 'Remotion server stderr');
+        }
+      });
+
+      server.on('error', (err) => {
+        clearTimeout(timeout);
+        reject(new RenderError(`Remotion server error: ${err.message}`));
+      });
+
+      server.on('close', (code) => {
+        if (code !== null && code !== 0) {
+          clearTimeout(timeout);
+          reject(new RenderError(`Remotion server exited with code ${code}`));
+        }
+      });
+    });
+  }
+
+  private buildRemotionEntry(_data: ReturnType<typeof this.buildCompositionsData>): string {
+    const remotionSrcDir = path.resolve(this.config.paths.remotionDir, 'src');
     return `
-import { Composition } from 'remotion';
-import { VideoPart } from './VideoPart';
+import React from 'react';
+import { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig } from 'remotion';
+import { VideoPart } from '${remotionSrcDir.replace(/\\/g, '\\\\')}\\\\VideoPart';
 
-const data = ${JSON.stringify(data).replace(/\\\\/g, '\\\\')};
-
-export const VideoComposition = () => {
+export const VideoComposition = ({ data }: { data: any }) => {
+  const { fps } = useVideoConfig();
   return (
-    <div style={{ width: '${data.width}px', height: '${data.height}px', backgroundColor: '#000', display: 'flex', flexDirection: 'column' }}>
-      {${partsJson}.map((part: any, i: number) => (
-        <VideoPart key={i} part={part} index={i} />
-      ))}
-    </div>
+    <AbsoluteFill style={{ backgroundColor: '#000', width: data.width, height: data.height }}>
+      {data.parts.map((part: any, i: number) => {
+        const durationFrames = Math.ceil((part.durationSeconds ?? 8) * fps);
+        return (
+          <Sequence key={i} from={i * durationFrames} durationInFrames={durationFrames}>
+            <VideoPart part={part} index={i} />
+          </Sequence>
+        );
+      })}
+    </AbsoluteFill>
   );
 };
 `;

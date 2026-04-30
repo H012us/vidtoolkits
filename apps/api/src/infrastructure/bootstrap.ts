@@ -5,6 +5,7 @@ import { sseManager } from '../presentation/SSE/SSEManager.js';
 // Services
 import { ProjectService } from '../application/services/ProjectService.js';
 import { RenderService } from '../application/services/RenderService.js';
+import { UploadService } from '../application/services/UploadService.js';
 import { PipelineOrchestrator } from '../application/services/PipelineOrchestrator.js';
 import { MarkdownParserService } from '../application/services/MarkdownParserService.js';
 import { MediaProviderRegistry } from './media-providers/MediaProviderRegistry.js';
@@ -62,6 +63,5 @@ export function bootstrap(): void {
   // Application services
   container.register('ProjectService', new ProjectService());
   container.register('RenderService', new RenderService());
-  // UploadService needs to be instantiated per-request (needs multer file)
-  // It will be created in the controller
+  container.register('UploadService', new UploadService());
 }

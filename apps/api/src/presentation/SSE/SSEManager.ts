@@ -9,7 +9,12 @@ export class SSEManager {
     if (!this.rooms.has(roomId)) {
       this.rooms.set(roomId, new Set());
     }
-    this.rooms.get(roomId)!.add({ res, id: clientId ?? res.locals.clientId ?? 'anonymous' });
+    // Deduplicate by res object reference
+    const room = this.rooms.get(roomId)!;
+    for (const client of room) {
+      if (client.res === res) return;
+    }
+    room.add({ res, id: clientId ?? res.locals.clientId ?? 'anonymous' });
   }
 
   unsubscribe(roomId: string, res: Response): void {

@@ -9,11 +9,11 @@ export function errorHandler(
   _next: NextFunction
 ): void {
   if (err instanceof DomainError) {
-    res.status(err.statusCode).json({
-      error: err.code,
-      message: err.message,
-      ...(err instanceof DomainError && 'field' in err ? { field: (err as { field?: string }).field } : {}),
-    });
+    const base: Record<string, unknown> = { error: err.code, message: err.message };
+    if ('field' in err) base.field = (err as DomainError & { field?: string }).field;
+    if ('provider' in err) base.provider = (err as DomainError & { provider?: string }).provider;
+    if ('engine' in err) base.engine = (err as DomainError & { engine?: string }).engine;
+    res.status(err.statusCode).json(base);
     return;
   }
 
