@@ -1,5 +1,28 @@
 # vidtoolkits — Video Creation Toolkit
 
+## MVP Progress
+
+### MVP 1 — Core Pipeline (COMPLETED) ✅
+**Repository:** https://github.com/H012us/vidtoolkits
+
+**What was built:**
+- Complete render pipeline with 7 steps: FETCH_IMAGES → GENERATE_TTS → MEASURE_DURATIONS → ASSEMBLE_COMPOSITION → RENDER_VIDEO → POST_PROCESS → DELIVER_RESULT
+- Remotion `renderMedia()` with real HTTP serveUrl (spawns temp preview server, waits for localhost:PORT, then renders)
+- SSE (Server-Sent Events) progress broadcasting to frontend with step/progress/error/complete/heartbeat events
+- FFmpeg H.265 post-processing with QSV hardware acceleration (auto-detect, fallback to libx265)
+- Two-tier cache: LRU memory (500 items, 1h TTL) + disk JSON (2GB, 7-day TTL)
+- Vitest test suite: unit + UAT integration tests (35 test files)
+- Fixed bugs: upload 500, SSE 404, false-positive UI success message, Remotion codec "undefined"
+
+**Bugs fixed during MVP 1:**
+- Upload returned 500 (fixed: missing UploadService registration)
+- SSE status endpoint returned 404 (fixed: incorrect route path)
+- UI showed "Video rendered successfully" when pipeline actually failed (fixed: SSE hook now checks `result.success`)
+- Remotion "Got unexpected codec 'undefined'" (fixed: added required `codec:'h264'` param + proper serveUrl approach)
+
+### MVP 2 — [PLANNED]
+- TBD
+
 ## Project Overview
 
 A web app that converts markdown scripts into videos using AI-generated voice-over and free stock imagery.
@@ -178,23 +201,24 @@ All in `.env.example`. **All optional** — the app works without API keys using
 apps/api/src/
 ├── server.ts                    # Express entry point + bootstrap
 ├── domain/
-│   ├── entities/                # VideoProjectEntity, RenderJobEntity
-│   └── errors/                 # DomainError subclasses
+│   ├── entities/               # VideoProjectEntity, RenderJobEntity
+│   └── errors/                  # DomainError subclasses
 ├── application/
-│   └── services/               # PipelineOrchestrator, MarkdownParserService, etc.
+│   └── services/               # PipelineOrchestrator, MarkdownParserService, RenderService
 ├── infrastructure/
-│   ├── config/                # EnvConfig (Zod), AppConfig
+│   ├── config/                  # EnvConfig (Zod), AppConfig
 │   ├── container.ts            # Manual DI container
 │   ├── bootstrap.ts            # Service registration
 │   ├── media-providers/        # Pixabay, Pexels, Unsplash + Registry
-│   ├── tts-engines/           # Voicebox, Edge-TTS
+│   ├── tts-engines/            # Voicebox, Edge-TTS
 │   ├── cache/                  # CacheManager (LRU + disk)
-│   ├── persistence/           # FileSystemProjectStore, RenderJobStore
-│   ├── remotion/               # (future) RemotionRenderer
-│   └── ffmpeg/                 # (future) FFmpegRunner
-└── presentation/
-    ├── routes/                 # Express route definitions
-    ├── controllers/            # Request handlers
-    ├── middleware/             # errorHandler, validateRequest, rateLimiter
-    └── SSE/                    # SSEManager (Server-Sent Events)
+│   ├── persistence/            # FileSystemProjectStore, RenderJobStore
+│   ├── logger.ts               # Pino logger
+│   └── fsUtils.ts              # ensureDir, etc.
+├── presentation/
+│   ├── routes/                 # Express route definitions
+│   ├── controllers/           # ProjectController, UploadController, RenderController
+│   ├── middleware/             # errorHandler, validateRequest, rateLimiter
+│   └── SSE/                    # SSEManager (Server-Sent Events)
+└── __tests__/                  # Vitest test suite + helpers/factories/fixtures
 ```
