@@ -17,5 +17,6 @@ router.patch('/:id', validateRequest(z.object({
   params: z.object({ id: z.string().uuid() }),
 })), controller.update.bind(controller));
 router.delete('/:id', controller.delete.bind(controller));
+router.post('/from-template', controller.fromTemplate.bind(controller));
 
 export { router as projectRoutes };

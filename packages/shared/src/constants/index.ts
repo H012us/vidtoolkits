@@ -1,4 +1,11 @@
 import { PipelineStepName } from '../interfaces/IPipelineStep.js';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = path.resolve(__dirname, '../../../..');
+
+export const SETTINGS_FILE_PATH = path.join(PROJECT_ROOT, 'data', 'settings.json');
 
 export const PIPELINE_STEPS_ORDER: PipelineStepName[] = [
   'PARSE_MARKDOWN',

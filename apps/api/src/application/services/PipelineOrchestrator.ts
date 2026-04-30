@@ -22,7 +22,7 @@ import { promisify } from 'node:util';
 
 const execAsync = promisify(exec);
 
-type ProgressCallback = (step: PipelineStepName, progress: number, message?: string) => void;
+type ProgressCallback = (step: PipelineStepName, progress: number, message?: string, partIndex?: number, partTitle?: string) => void;
 
 export class PipelineOrchestrator {
   private projectStore: FileSystemProjectStore;
@@ -42,7 +42,6 @@ export class PipelineOrchestrator {
   ): Promise<PipelineResult> {
     const startTime = Date.now();
     const stepsCompleted: PipelineStepName[] = [];
-    const errors: { step: PipelineStepName; message: string; recoverable: boolean; timestamp: Date }[] = [];
 
     let project = await this.projectStore.get(projectId);
     if (!project) throw new RenderError(`Project not found: ${projectId}`);
@@ -79,58 +78,56 @@ export class PipelineOrchestrator {
       config: { ...pipelineConfig, nodeMaxOldSpaceMB: this.config.performance.nodeMaxOldSpaceMB, cacheDiskMaxMB: this.config.performance.cacheDiskMaxMB },
     };
 
-    const report = (step: PipelineStepName, progress: number, message?: string) => {
+    const report = (step: PipelineStepName, progress: number, message?: string, partIndex?: number, partTitle?: string) => {
       ctx.currentStep = step;
       ctx.progress = progress;
-      onProgress?.(step, progress, message);
-    };
-
-    const emitError = (step: PipelineStepName, message: string, recoverable: boolean) => {
-      errors.push({ step, message, recoverable, timestamp: new Date() });
-      ctx.errors.push({ step, message, recoverable, timestamp: new Date() });
-      report(step, ctx.progress, message);
+      onProgress?.(step, progress, message, partIndex, partTitle);
     };
 
     // Step 1: FETCH_IMAGES
     report('FETCH_IMAGES', 10, 'Fetching images for each part...');
     const imageLimit = pLimit(pipelineConfig.maxConcurrentImages);
-    await Promise.allSettled(
-      ctx.partStates.map((part, i) =>
-        imageLimit(async () => {
-          try {
+    try {
+      await Promise.all(
+        ctx.partStates.map((part, i) =>
+          imageLimit(async () => {
             const results = await this.mediaRegistry.search(part.keywords, 5);
             ctx.partStates[i].images = results;
             ctx.partStates[i].status = 'completed';
-            report('FETCH_IMAGES', 10 + Math.round(((i + 1) / ctx.partStates.length) * 20), `Images for part ${i + 1}: ${results.length} found`);
-          } catch (err) {
-            ctx.partStates[i].status = 'failed';
-            emitError('FETCH_IMAGES', `Part ${i + 1}: ${(err as Error).message}`, true);
-          }
-        })
-      )
-    );
+            report('FETCH_IMAGES', 10 + Math.round(((i + 1) / ctx.partStates.length) * 20), `Part ${i + 1} (${part.title}): ${results.length} images found`, i, part.title);
+          })
+        )
+      );
+    } catch (err) {
+      ctx.partStates.forEach((p) => { if (p.status === 'pending') p.status = 'failed'; });
+      const errMsg = (err as Error).message;
+      ctx.errors.push({ step: 'FETCH_IMAGES', message: errMsg, recoverable: false, timestamp: new Date() });
+      throw new RenderError(`FETCH_IMAGES failed: ${errMsg}`);
+    }
     stepsCompleted.push('FETCH_IMAGES');
 
     // Step 2: GENERATE_TTS
     report('GENERATE_TTS', 35, 'Generating voice-over...');
     const ttsLimit = pLimit(pipelineConfig.maxConcurrentTTS);
-    await Promise.allSettled(
-      ctx.partStates.map((part, i) =>
-        ttsLimit(async () => {
-          try {
+    try {
+      await Promise.all(
+        ctx.partStates.map((part, i) =>
+          ttsLimit(async () => {
             const ttsPath = path.join(ttsDir, `part-${i}.mp3`);
             const result = await this.generateTTS(part.script, ttsPath, entity.voiceName);
             ctx.partStates[i].ttsPath = result.path;
             ctx.partStates[i].durationSeconds = result.durationSeconds;
             ctx.partStates[i].status = 'completed';
-            report('GENERATE_TTS', 35 + Math.round(((i + 1) / ctx.partStates.length) * 25), `TTS for part ${i + 1}: ${result.durationSeconds.toFixed(1)}s`);
-          } catch (err) {
-            ctx.partStates[i].status = 'failed';
-            emitError('GENERATE_TTS', `Part ${i + 1}: ${(err as Error).message}`, true);
-          }
-        })
-      )
-    );
+            report('GENERATE_TTS', 35 + Math.round(((i + 1) / ctx.partStates.length) * 25), `Part ${i + 1} (${part.title}): ${result.durationSeconds.toFixed(1)}s voice-over`, i, part.title);
+          })
+        )
+      );
+    } catch (err) {
+      ctx.partStates.forEach((p) => { if (p.status === 'pending') p.status = 'failed'; });
+      const errMsg = (err as Error).message;
+      ctx.errors.push({ step: 'GENERATE_TTS', message: errMsg, recoverable: false, timestamp: new Date() });
+      throw new RenderError(`GENERATE_TTS failed: ${errMsg}`);
+    }
     stepsCompleted.push('GENERATE_TTS');
 
     // Step 3: MEASURE DURATIONS
@@ -158,9 +155,10 @@ export class PipelineOrchestrator {
         report('RENDER_VIDEO', 78 + Math.round(p * 15), `Rendering: ${p}%`);
       });
     } catch (err) {
-      emitError('RENDER_VIDEO', (err as Error).message, false);
-      await this.failProject(projectId, errors[errors.length - 1]?.message ?? 'Render failed');
-      return { projectId, outputPath: null, success: false, stepsCompleted, errors, totalDurationMs: Date.now() - startTime };
+      const errMsg = (err as Error).message;
+      ctx.errors.push({ step: 'RENDER_VIDEO', message: errMsg, recoverable: false, timestamp: new Date() });
+      await this.failProject(projectId, errMsg);
+      throw new RenderError(`RENDER_VIDEO failed: ${errMsg}`);
     }
     stepsCompleted.push('RENDER_VIDEO');
 
@@ -179,7 +177,7 @@ export class PipelineOrchestrator {
       outputPath: finalPath,
       success: true,
       stepsCompleted,
-      errors,
+      errors: ctx.errors,
       totalDurationMs: Date.now() - startTime,
     };
 

@@ -14,5 +14,8 @@ router.get('/:id/status', controller.status.bind(controller));
 router.get('/:id/download', validateRequest(z.object({
   params: z.object({ id: z.string().uuid() }),
 })), controller.download.bind(controller));
+router.delete('/:id', validateRequest(z.object({
+  params: z.object({ id: z.string().uuid() }),
+})), controller.cancel.bind(controller));
 
 export { router as renderRoutes };

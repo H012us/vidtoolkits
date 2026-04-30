@@ -1,10 +1,13 @@
+import { useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useProject, useUpdateProject } from '../hooks/useProject';
+import { useProject } from '../hooks/useProject';
 import { useRender } from '../hooks/useRender';
 import { useSSE } from '../hooks/useSSE';
+import { useHealthCheck } from '../hooks/useHealthCheck';
 import { RenderProgress } from '../components/RenderProgress';
 import { VideoPlayer } from '../components/VideoPlayer';
-import { ArrowLeft, Play, Settings } from 'lucide-react';
+import { renderApi } from '../api/renderApi';
+import { ArrowLeft, Play, CheckCircle, XCircle, Loader2, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export function ProjectPage() {
@@ -12,11 +15,32 @@ export function ProjectPage() {
   const navigate = useNavigate();
   const { data: project, isLoading, error } = useProject(id);
   const { startRender, isStarting, job } = useRender(id ?? '');
+  const { health, loading: healthLoading, refresh: refreshHealth } = useHealthCheck();
+  const [showHealthModal, setShowHealthModal] = useState(false);
+  const [partStatuses, setPartStatuses] = useState<Array<{ title: string; status: 'pending' | 'running' | 'completed' | 'failed' }>>([]);
 
   const { connected, progress, log } = useSSE(id ?? null, {
     onComplete: () => toast.success('Video rendered successfully!'),
     onError: (msg) => toast.error(`Render error: ${msg}`),
+    onStep: (_step, _progress, _message, partIndex, partTitle) => {
+      if (partIndex !== undefined) {
+        setPartStatuses(prev => {
+          const next = [...prev];
+          next[partIndex] = { title: partTitle ?? `Part ${partIndex + 1}`, status: 'running' };
+          return next;
+        });
+      }
+    },
   });
+
+  const handleStop = useCallback(async () => {
+    if (!id) return;
+    try {
+      await renderApi.cancel(id);
+    } catch {
+      toast.error('Failed to cancel render');
+    }
+  }, [id]);
 
   if (isLoading) {
     return (
@@ -40,6 +64,17 @@ export function ProjectPage() {
   const isRendering = job?.status === 'running' || project.status === 'processing';
   const isComplete = job?.status === 'completed' || project.status === 'completed';
 
+  const displayPartStatuses = partStatuses.length > 0
+    ? partStatuses
+    : project.parts.map((p: any) => ({ title: p.title, status: p.status as 'pending' | 'running' | 'completed' | 'failed' }));
+
+  const allHealthy = health
+    && health.voicebox.status === 'available'
+    && health.imageProviders.some(p => p.available && p.configured)
+    && health.binaries.ffmpeg.available
+    && health.binaries.ffprobe.available
+    && health.remotion.available;
+
   return (
     <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
       {/* Header */}
@@ -57,16 +92,36 @@ export function ProjectPage() {
           </p>
         </div>
         {!isRendering && !isComplete && (
-          <button
-            onClick={() => startRender()}
-            disabled={isStarting}
-            className="flex items-center gap-2 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium transition-colors"
-          >
-            <Play className="h-4 w-4" />
-            {isStarting ? 'Starting...' : 'Render Video'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { refreshHealth(); setShowHealthModal(true); }}
+              className="flex items-center gap-2 text-gray-400 hover:text-gray-200 text-sm px-3 py-2 border border-gray-700 rounded-lg transition-colors"
+            >
+              {healthLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : allHealthy ? (
+                <CheckCircle className="h-4 w-4 text-green-400" />
+              ) : (
+                <AlertTriangle className="h-4 w-4 text-yellow-400" />
+              )}
+              Check Readiness
+            </button>
+            <button
+              onClick={() => startRender()}
+              disabled={isStarting}
+              className="flex items-center gap-2 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+            >
+              <Play className="h-4 w-4" />
+              {isStarting ? 'Starting...' : 'Render Video'}
+            </button>
+          </div>
         )}
       </div>
+
+      {/* Health Modal */}
+      {showHealthModal && (
+        <HealthModal health={health} loading={healthLoading} onClose={() => setShowHealthModal(false)} onRefresh={refreshHealth} />
+      )}
 
       {/* Parts List */}
       <section>
@@ -133,6 +188,8 @@ export function ProjectPage() {
           connected={connected}
           status={job?.status ?? project.status}
           outputPath={job?.outputPath ?? project.outputPath ?? undefined}
+          onStop={isRendering ? handleStop : undefined}
+          partStatuses={displayPartStatuses}
         />
       )}
 
@@ -140,6 +197,95 @@ export function ProjectPage() {
       {isComplete && job?.outputPath && (
         <VideoPlayer downloadUrl={`/api/render/${id}/download`} />
       )}
+    </div>
+  );
+}
+
+function HealthModal({
+  health,
+  loading,
+  onClose,
+  onRefresh,
+}: {
+  health: any;
+  loading: boolean;
+  onClose: () => void;
+  onRefresh: () => void;
+}) {
+  const allGreen = health
+    && health.voicebox.status === 'available'
+    && health.imageProviders.some((p: any) => p.available && p.configured)
+    && health.binaries.ffmpeg.available
+    && health.binaries.ffprobe.available
+    && health.remotion.available;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-gray-900 rounded-xl p-6 w-full max-w-md space-y-4 mx-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-200">System Readiness</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-200 text-2xl leading-none">&times;</button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 text-brand-500 animate-spin" />
+          </div>
+        ) : health ? (
+          <div className="space-y-3">
+            {allGreen ? (
+              <div className="bg-green-900/30 border border-green-800 rounded-lg p-3 flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
+                <p className="text-sm text-green-300">All systems ready! You can start rendering.</p>
+              </div>
+            ) : (
+              <div className="bg-yellow-900/30 border border-yellow-800 rounded-lg p-3 flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-yellow-400 flex-shrink-0" />
+                <p className="text-sm text-yellow-300">Some services are unavailable. Fix the issues below before rendering.</p>
+              </div>
+            )}
+
+            <div className="space-y-2 text-sm">
+              <ServiceCheck label="Voicebox TTS" status={health.voicebox.status === 'available'} detail={health.voicebox.latencyMs != null ? `${health.voicebox.latencyMs}ms` : health.voicebox.message} />
+              <ServiceCheck label="Edge-TTS" status={health.edgeTts.status === 'available'} detail="Always available" />
+              <ServiceCheck label="Image Providers" status={health.imageProviders.some((p: any) => p.available)} detail={health.imageProviders.filter((p: any) => p.available).map((p: any) => p.name).join(', ') || 'None available'} />
+              <ServiceCheck label="FFmpeg" status={health.binaries.ffmpeg.available} detail={health.binaries.ffmpeg.version ? `v${health.binaries.ffmpeg.version}` : health.binaries.ffmpeg.error} />
+              <ServiceCheck label="FFprobe" status={health.binaries.ffprobe.available} detail={health.binaries.ffprobe.error ?? 'Available'} />
+              <ServiceCheck label="Remotion" status={health.remotion.available} detail={health.remotion.error ?? 'Ready'} />
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500 text-center py-4">Could not load health status.</p>
+        )}
+
+        <div className="flex gap-2 pt-2">
+          <button
+            onClick={onRefresh}
+            className="flex-1 text-sm text-gray-400 hover:text-gray-200 border border-gray-700 rounded-lg py-2 transition-colors"
+          >
+            Refresh
+          </button>
+          <button
+            onClick={onClose}
+            className="flex-1 text-sm bg-brand-600 hover:bg-brand-500 text-white rounded-lg py-2 transition-colors"
+          >
+            {allGreen ? 'Ready to Render' : 'Close'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ServiceCheck({ label, status, detail }: { label: string; status: boolean; detail?: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      {status
+        ? <CheckCircle className="h-4 w-4 text-green-400 flex-shrink-0" />
+        : <XCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
+      }
+      <span className="text-gray-300 flex-1">{label}</span>
+      <span className="text-gray-500 text-xs text-right max-w-32 truncate">{detail ?? (status ? 'OK' : 'Unavailable')}</span>
     </div>
   );
 }

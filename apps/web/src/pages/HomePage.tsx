@@ -1,11 +1,12 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUpload } from '../hooks/useUpload';
 import { useProjects } from '../hooks/useProject';
 import { projectApi } from '../api/projectApi';
-import { Upload, Film, Clock, Trash2, ExternalLink } from 'lucide-react';
+import { TemplateEditor } from '../components/TemplateEditor';
+import { Upload, Film, Clock, Trash2, ExternalLink, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { VideoProject } from '../types';
 
@@ -13,6 +14,7 @@ export function HomePage() {
   const navigate = useNavigate();
   const upload = useUpload();
   const { data: projects = [] } = useProjects();
+  const [showTemplateEditor, setShowTemplateEditor] = useState(false);
 
   const onDrop = useCallback(async (accepted: File[]) => {
     if (accepted.length === 0) return;
@@ -46,14 +48,31 @@ export function HomePage() {
 
       {/* Upload Zone */}
       <section>
+        {/* Method selection */}
+        <div className="flex gap-3 mb-4">
+          <button
+            onClick={() => setShowTemplateEditor(true)}
+            className="flex-1 flex items-center justify-center gap-2 py-3 px-4 bg-brand-900/30 hover:bg-brand-900/50 border border-brand-800 text-brand-300 rounded-lg transition-colors"
+          >
+            <FileText className="h-5 w-5" />
+            <span className="font-medium">New from Template</span>
+          </button>
+          <div className="flex-1 drag-area text-center cursor-pointer hover:border-brand-500/50" {...getRootProps()}>
+            <input {...getInputProps()} />
+            <Upload className="h-5 w-5 text-gray-500 inline-block mr-2" />
+            <span className="text-gray-400 text-sm">
+              {upload.isPending ? 'Parsing…' : 'Upload .md file'}
+            </span>
+          </div>
+        </div>
         <div
           {...getRootProps()}
-          className={`drag-area p-16 text-center cursor-pointer hover:border-brand-500/50 ${
+          className={`drag-area p-12 text-center cursor-pointer hover:border-brand-500/50 ${
             isDragActive ? 'dragging' : ''
           }`}
         >
           <input {...getInputProps()} />
-          <Upload className="mx-auto h-12 w-12 text-gray-500 mb-4" />
+          <Upload className="mx-auto h-10 w-10 text-gray-500 mb-3" />
           {upload.isPending ? (
             <p className="text-brand-400">Parsing your markdown...</p>
           ) : isDragActive ? (
@@ -108,6 +127,7 @@ export function HomePage() {
           ))}
         </div>
       </section>
+      {showTemplateEditor && <TemplateEditor />}
     </div>
   );
 }

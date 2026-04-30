@@ -52,12 +52,14 @@ export class SSEManager {
 }
 
 export interface SSEEvent {
-  type: 'step' | 'progress' | 'error' | 'complete' | 'heartbeat';
+  type: 'step' | 'progress' | 'error' | 'complete' | 'heartbeat' | 'stopped';
   step?: string;
   progress?: number;
   message?: string;
   data?: unknown;
   timestamp: string;
+  partIndex?: number;
+  partTitle?: string;
 }
 
 export const sseManager = new SSEManager();

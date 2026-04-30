@@ -56,4 +56,14 @@ export class RenderController {
       next(err);
     }
   }
+
+  async cancel(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { id } = req.params as { id: string };
+      await this.service.cancelRender(id);
+      res.json({ cancelled: true });
+    } catch (err) {
+      next(err);
+    }
+  }
 }

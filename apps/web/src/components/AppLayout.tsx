@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Film, Settings } from 'lucide-react';
+import { Film, Settings, FileText } from 'lucide-react';
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -13,7 +13,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <Film className="h-5 w-5 text-brand-500" />
             <span className="font-semibold">vidtoolkits</span>
           </Link>
-          <nav className="flex items-center gap-4">
+          <nav className="flex items-center gap-3">
+            <Link
+              to="/template"
+              className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors ${
+                location.pathname === '/template'
+                  ? 'text-brand-400 bg-brand-900/20'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+              }`}
+            >
+              <FileText className="h-4 w-4" />
+              Template
+            </Link>
             <Link
               to="/settings"
               className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg transition-colors ${

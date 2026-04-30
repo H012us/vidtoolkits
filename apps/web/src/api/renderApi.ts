@@ -14,18 +14,24 @@ export interface RenderJob {
 }
 
 export interface SSEEvent {
-  type: 'step' | 'progress' | 'error' | 'complete' | 'heartbeat';
+  type: 'step' | 'progress' | 'error' | 'complete' | 'heartbeat' | 'stopped';
   step?: string;
   progress?: number;
   message?: string;
   data?: unknown;
   timestamp: string;
+  partIndex?: number;
+  partTitle?: string;
 }
 
 export const renderApi = {
   start: async (projectId: string): Promise<{ job: RenderJob }> => {
     const { data } = await api.post<{ job: RenderJob }>(`/render/${projectId}/start`);
     return data;
+  },
+
+  cancel: async (projectId: string): Promise<void> => {
+    await api.delete(`/render/${projectId}`);
   },
 
   getStatus: (projectId: string): EventSource => {

@@ -2,10 +2,11 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import type { SSEEvent } from '../api/renderApi';
 
 interface UseSSEOptions {
-  onStep?: (step: string, progress: number, message: string) => void;
+  onStep?: (step: string, progress: number, message: string, partIndex?: number, partTitle?: string) => void;
   onError?: (message: string) => void;
   onComplete?: (data: unknown) => void;
   onHeartbeat?: () => void;
+  onStopped?: () => void;
 }
 
 export function useSSE(projectId: string | null, options: UseSSEOptions = {}) {
@@ -32,17 +33,25 @@ export function useSSE(projectId: string | null, options: UseSSEOptions = {}) {
           return;
         }
 
+        if (data.type === 'stopped') {
+          setConnected(false);
+          setLog(l => [...l, `[STOPPED] ${data.message ?? 'Render cancelled by user'}`]);
+          options.onStopped?.();
+          return;
+        }
+
         if (data.type === 'step' || data.type === 'progress') {
           setCurrentStep(data.step ?? null);
           setProgress(data.progress ?? 0);
-          if (data.message) {
-            setLog(l => [...l, `[${data.step ?? 'progress'}] ${data.message}`]);
-          }
-          options.onStep?.(data.step ?? '', data.progress ?? 0, data.message ?? '');
+          const prefix = data.partIndex !== undefined ? `[${data.step ?? 'step'}] Part ${data.partIndex + 1}` : `[${data.step ?? 'progress'}]`;
+          const msg = data.partTitle ? `${prefix} (${data.partTitle}): ${data.message}` : `${prefix} ${data.message ?? ''}`;
+          setLog(l => [...l, msg.trim()]);
+          options.onStep?.(data.step ?? '', data.progress ?? 0, data.message ?? '', data.partIndex, data.partTitle);
         }
 
         if (data.type === 'error') {
-          setLog(l => [...l, `[ERROR] ${data.message}`]);
+          const prefix = data.partIndex !== undefined ? `Part ${data.partIndex + 1}` : 'Error';
+          setLog(l => [...l, `[ERROR] ${prefix}: ${data.message}`]);
           options.onError?.(data.message ?? 'Unknown error');
         }
 

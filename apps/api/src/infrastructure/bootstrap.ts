@@ -8,6 +8,8 @@ import { RenderService } from '../application/services/RenderService.js';
 import { UploadService } from '../application/services/UploadService.js';
 import { PipelineOrchestrator } from '../application/services/PipelineOrchestrator.js';
 import { MarkdownParserService } from '../application/services/MarkdownParserService.js';
+import { SettingsService } from '../application/services/SettingsService.js';
+import { HealthCheckService } from '../application/services/HealthCheckService.js';
 import { MediaProviderRegistry } from './media-providers/MediaProviderRegistry.js';
 import { CacheManager } from './cache/CacheManager.js';
 
@@ -64,4 +66,6 @@ export function bootstrap(): void {
   container.register('ProjectService', new ProjectService());
   container.register('RenderService', new RenderService());
   container.register('UploadService', new UploadService());
+  container.register('SettingsService', new SettingsService(CONFIG.paths.dataDir));
+  container.register('HealthCheckService', new HealthCheckService());
 }
