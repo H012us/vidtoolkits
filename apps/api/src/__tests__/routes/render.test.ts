@@ -13,7 +13,6 @@ vi.mock('../../application/services/RenderService.js', () => ({
 }));
 
 describe('UAT: Render endpoint', () => {
-
   let tempDir: string;
   let app: ReturnType<typeof createTestApp>;
   let projectId: string;
@@ -48,9 +47,15 @@ describe('UAT: Render endpoint', () => {
         return job.toJSON();
       },
       async getJobStatus(id: string) {
-        // The SSE and download routes use project ID as :id
-        // Try project ID lookup first, then job ID lookup
         return (await jobStore.getByProjectId(id)) ?? (await jobStore.get(id));
+      },
+      async cancelRender(id: string) {
+        const { NotFoundError } = await import('../../domain/errors/index.js');
+        const job = await jobStore.getByProjectId(id);
+        if (!job) throw new NotFoundError('RenderJob', id);
+        job.status = 'failed';
+        job.error = 'Cancelled by user';
+        await jobStore.save(job);
       },
     };
 
@@ -131,7 +136,6 @@ describe('UAT: Render endpoint', () => {
       done();
     });
 
-    // Safety timeout in case the 'response' event never fires
     setTimeout(() => {
       req.abort();
       done(new Error('SSE response event did not fire within timeout'));
@@ -153,6 +157,27 @@ describe('UAT: Render endpoint', () => {
 
   it('GET /api/render/:id/download with invalid UUID returns 400', async () => {
     const res = await request(app).get('/api/render/not-a-uuid/download');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('VALIDATION_ERROR');
+  });
+
+  it('DELETE /api/render/:id returns 200 and cancels job', async () => {
+    // First start a render so there's a job to cancel
+    await request(app).post(`/api/render/${projectId}/start`);
+    const res = await request(app).delete(`/api/render/${projectId}`);
+    expect(res.status).toBe(200);
+    expect(res.body.cancelled).toBe(true);
+  });
+
+  it('DELETE /api/render/:id for nonexistent job returns 404', async () => {
+    const nonexistentId = '00000000-0000-0000-0000-000000000000';
+    const res = await request(app).delete(`/api/render/${nonexistentId}`);
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('NOT_FOUND');
+  });
+
+  it('DELETE /api/render/:id with invalid UUID returns 400', async () => {
+    const res = await request(app).delete('/api/render/not-a-uuid');
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('VALIDATION_ERROR');
   });

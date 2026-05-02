@@ -23,6 +23,8 @@ export class RenderController {
   async status(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params as { id: string };
+      const job = await this.service.getJobStatus(id);
+      if (!job) throw new NotFoundError('RenderJob', id);
 
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');

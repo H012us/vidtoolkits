@@ -7,6 +7,7 @@ import { ProjectService } from '../../application/services/ProjectService.js';
 import { UploadService } from '../../application/services/UploadService.js';
 import { SSEManager } from '../../presentation/SSE/SSEManager.js';
 import { createTempDir } from '../helpers/tempDir.js';
+import { HealthCheckService } from '../../application/services/HealthCheckService.js';
 
 describe('UAT: Health endpoint', () => {
   const app = createTestApp();
@@ -190,5 +191,106 @@ describe('UAT: Security headers', () => {
     const res = await request(app).get('/api/health');
     expect(res.headers['x-content-type-options']).toBe('nosniff');
     expect(res.headers['x-frame-options']).toBeDefined();
+  });
+});
+
+describe('UAT: Health detailed endpoint', () => {
+  it('GET /api/health/detailed returns 200 with all service statuses', async () => {
+    const mockHealth = {
+      voicebox: { status: 'available' as const, latencyMs: 12 },
+      edgeTts: { status: 'available' as const },
+      imageProviders: [{ name: 'pixabay', configured: true, available: true }],
+      binaries: { ffmpeg: { available: true, version: '6.0' }, ffprobe: { available: true } },
+      remotion: { available: true },
+      timestamp: '2026-01-01T00:00:00.000Z',
+    };
+    const mockService = Object.assign(new HealthCheckService(), {
+      check: vi.fn().mockResolvedValue(mockHealth),
+    } as any);
+    container.register('HealthCheckService', mockService as any);
+
+    const app = createTestApp();
+    const res = await request(app).get('/api/health/detailed');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('voicebox');
+    expect(res.body).toHaveProperty('edgeTts');
+    expect(res.body).toHaveProperty('imageProviders');
+    expect(res.body).toHaveProperty('binaries');
+    expect(res.body).toHaveProperty('remotion');
+    expect(res.body).toHaveProperty('timestamp');
+  });
+
+  it('GET /api/health/detailed has correct imageProviders shape', async () => {
+    const mockHealth = {
+      voicebox: { status: 'available' as const },
+      edgeTts: { status: 'available' as const },
+      imageProviders: [{ name: 'pixabay', configured: true, available: true }],
+      binaries: { ffmpeg: { available: true }, ffprobe: { available: true } },
+      remotion: { available: true },
+      timestamp: '2026-01-01T00:00:00.000Z',
+    };
+    const mockService = Object.assign(new HealthCheckService(), {
+      check: vi.fn().mockResolvedValue(mockHealth),
+    } as any);
+    container.register('HealthCheckService', mockService as any);
+
+    const app = createTestApp();
+    const res = await request(app).get('/api/health/detailed');
+    expect(Array.isArray(res.body.imageProviders)).toBe(true);
+    expect(res.body.imageProviders[0]).toHaveProperty('name');
+    expect(res.body.imageProviders[0]).toHaveProperty('configured');
+    expect(res.body.imageProviders[0]).toHaveProperty('available');
+  });
+
+  it('GET /api/health/detailed has binaries.ffmpeg and binaries.ffprobe', async () => {
+    const mockHealth = {
+      voicebox: { status: 'available' as const },
+      edgeTts: { status: 'available' as const },
+      imageProviders: [],
+      binaries: { ffmpeg: { available: true }, ffprobe: { available: false } },
+      remotion: { available: true },
+      timestamp: '2026-01-01T00:00:00.000Z',
+    };
+    const mockService = Object.assign(new HealthCheckService(), {
+      check: vi.fn().mockResolvedValue(mockHealth),
+    } as any);
+    container.register('HealthCheckService', mockService as any);
+
+    const app = createTestApp();
+    const res = await request(app).get('/api/health/detailed');
+    expect(res.body.binaries).toHaveProperty('ffmpeg');
+    expect(res.body.binaries).toHaveProperty('ffprobe');
+  });
+});
+
+describe('UAT: Health test provider endpoint', () => {
+  it('POST /api/health/test/pixabay returns 200 with provider health', async () => {
+    const mockService = Object.assign(new HealthCheckService(), {
+      testProvider: vi.fn().mockResolvedValue({ name: 'pixabay', configured: true, available: true, latencyMs: 15 }),
+    } as any);
+    container.register('HealthCheckService', mockService as any);
+
+    const app = createTestApp();
+    const res = await request(app).post('/api/health/test/pixabay');
+    expect(res.status).toBe(200);
+    expect(res.body.name).toBe('pixabay');
+    expect(res.body.configured).toBe(true);
+    expect(res.body.available).toBe(true);
+  });
+
+  it('POST /api/health/test/unknown returns configured: false, available: false', async () => {
+    const mockService = Object.assign(new HealthCheckService(), {
+      testProvider: vi.fn().mockResolvedValue({ name: 'unknown', configured: false, available: false, error: 'Provider not found' }),
+    } as any);
+    container.register('HealthCheckService', mockService as any);
+
+    const app = createTestApp();
+    const res = await request(app).post('/api/health/test/unknown');
+    expect(res.status).toBe(200);
+    expect(res.body.name).toBe('unknown');
+    expect(res.body.configured).toBe(false);
+    expect(res.body.available).toBe(false);
+    expect(res.body.error).toBe('Provider not found');
   });
 });

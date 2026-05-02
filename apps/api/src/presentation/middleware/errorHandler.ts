@@ -18,7 +18,7 @@ export function errorHandler(
   }
 
   // Handle SERVICE_UNAVAILABLE errors from pre-render validation
-  if ((err as any).code === 'SERVICE_UNAVAILABLE') {
+  if (err && (err as any).code === 'SERVICE_UNAVAILABLE') {
     res.status(503).json({
       error: 'SERVICE_UNAVAILABLE',
       message: (err as Error).message,

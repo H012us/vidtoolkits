@@ -6,6 +6,8 @@ import { healthRoutes } from '../presentation/routes/healthRoutes.js';
 import { projectRoutes } from '../presentation/routes/projectRoutes.js';
 import { uploadRoutes } from '../presentation/routes/uploadRoutes.js';
 import { renderRoutes } from '../presentation/routes/renderRoutes.js';
+import { settingsRoutes } from '../presentation/routes/settingsRoutes.js';
+import { templateRoutes } from '../presentation/routes/templateRoutes.js';
 
 export function createTestApp() {
   const app = express();
@@ -18,6 +20,8 @@ export function createTestApp() {
   app.use('/api/projects', projectRoutes);
   app.use('/api/upload', uploadRoutes);
   app.use('/api/render', renderRoutes);
+  app.use('/api', settingsRoutes);
+  app.use('/api', templateRoutes);
 
   app.use(errorHandler);
   return app;

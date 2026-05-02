@@ -30,6 +30,7 @@ describe('RenderController', () => {
     mockService = {
       startRender: vi.fn(),
       getJobStatus: vi.fn(),
+      cancelRender: vi.fn(),
     } as unknown as RenderService;
 
     mockSSE = {
@@ -135,6 +136,24 @@ describe('RenderController', () => {
       const next = vi.fn();
       await controller.download(mockReq({ params: { id: 'ghost' } }), mockRes(), next);
       expect(next.mock.calls[0][0]).toBeInstanceOf(NotFoundError);
+    });
+  });
+
+  describe('cancel', () => {
+    it('returns { cancelled: true } on success', async () => {
+      (mockService.cancelRender as any).mockResolvedValue(undefined);
+      const res = mockRes();
+      await controller.cancel(mockReq({ params: { id: 'proj-1' } }), res, vi.fn());
+      expect(mockService.cancelRender).toHaveBeenCalledWith('proj-1');
+      expect(res.json).toHaveBeenCalledWith({ cancelled: true });
+    });
+
+    it('passes NotFoundError to next', async () => {
+      const err = new NotFoundError('RenderJob', 'ghost');
+      (mockService.cancelRender as any).mockRejectedValue(err);
+      const next = vi.fn();
+      await controller.cancel(mockReq({ params: { id: 'ghost' } }), mockRes(), next);
+      expect(next).toHaveBeenCalledWith(err);
     });
   });
 });
