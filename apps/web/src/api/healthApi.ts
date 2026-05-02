@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { api } from './client';
 
 export interface DetailedHealth {
   voicebox: { status: 'available' | 'unavailable' | 'not_configured'; latencyMs?: number; message?: string };
@@ -20,12 +20,12 @@ export interface DetailedHealth {
 
 export const healthApi = {
   async getDetailed(): Promise<DetailedHealth> {
-    const res = await axios.get('/health/detailed');
+    const res = await api.get('/health/detailed');
     return res.data;
   },
 
   async testProvider(providerName: string) {
-    const res = await axios.post(`/health/test/${providerName}`);
+    const res = await api.post(`/health/test/${providerName}`);
     return res.data;
   },
 };

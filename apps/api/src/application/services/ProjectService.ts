@@ -16,7 +16,8 @@ export class ProjectService {
   }
 
   async listProjects(): Promise<VideoProject[]> {
-    return this.store.list();
+    const items = await this.store.list();
+    return items.filter(p => Array.isArray(p.parts));
   }
 
   async getProject(id: string): Promise<VideoProject | null> {

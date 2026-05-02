@@ -127,7 +127,7 @@ export function HomePage() {
           ))}
         </div>
       </section>
-      {showTemplateEditor && <TemplateEditor />}
+      {showTemplateEditor && <TemplateEditor onClose={() => setShowTemplateEditor(false)} />}
     </div>
   );
 }

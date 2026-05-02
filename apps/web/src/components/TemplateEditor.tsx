@@ -1,13 +1,19 @@
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import toast from 'react-hot-toast';
+import { api } from '../api/client';
 
-export function TemplateEditor() {
+interface TemplateEditorProps {
+  onClose?: () => void;
+}
+
+export function TemplateEditor({ onClose }: TemplateEditorProps) {
   const navigate = useNavigate();
   const [markdown, setMarkdown] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleDismiss = onClose ?? (() => navigate(-1));
 
   const handleCreate = useCallback(async () => {
     if (!markdown.trim()) {
@@ -17,11 +23,11 @@ export function TemplateEditor() {
     setLoading(true);
     setError(null);
     try {
-      const { data } = await axios.post('/projects/from-template', { markdown });
+      const { data } = await api.post('/projects/from-template', { markdown });
       toast.success(`"${data.project.title}" created!`);
       navigate(`/project/${data.project.id}`);
     } catch (err) {
-      const msg = (err as any)?.response?.data?.message ?? (err as Error).message;
+      const msg = (err as Error).message;
       setError(msg);
       toast.error(`Failed to create project: ${msg}`);
     } finally {
@@ -36,7 +42,7 @@ export function TemplateEditor() {
         <div className="flex items-center justify-between p-4 border-b border-gray-800">
           <h2 className="text-lg font-semibold text-gray-200">Create Video from Template</h2>
           <button
-            onClick={() => navigate('/')}
+            onClick={handleDismiss}
             className="text-gray-400 hover:text-gray-200 text-2xl leading-none"
           >
             &times;
@@ -78,7 +84,7 @@ export function TemplateEditor() {
             {loading ? 'Creating project…' : 'Create Video'}
           </button>
           <button
-            onClick={() => navigate('/')}
+            onClick={handleDismiss}
             className="px-4 py-2.5 text-gray-400 hover:text-gray-200 border border-gray-700 rounded-lg transition-colors"
           >
             Cancel

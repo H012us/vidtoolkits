@@ -136,10 +136,26 @@ infrastructure →  implements application interfaces (media-providers, tts-engi
 | GET | /api/projects/:id | Get project details |
 | PATCH | /api/projects/:id | Update project (title, voice, etc.) |
 | DELETE | /api/projects/:id | Delete project |
+| POST | /api/projects/from-template | Create project from markdown body |
 | POST | /api/render/:id/start | Start render pipeline |
 | GET | /api/render/:id/status | SSE stream for progress |
+| DELETE | /api/render/:id | Cancel in-progress render job |
 | GET | /api/render/:id/download | Download rendered video |
-| GET | /api/health | Health check |
+| GET | /api/health | Basic health check |
+| GET | /api/health/detailed | Detailed health with per-service status |
+| POST | /api/health/test/:provider | Test individual provider connectivity |
+| GET | /api/settings | Get current settings (merged env + file) |
+| PATCH | /api/settings | Update settings (persisted to data/settings.json) |
+| GET | /api/templates/markdown | Get annotated markdown template |
+
+## Frontend Routes
+
+| Path | Description |
+|------|-------------|
+| / | HomePage — upload or create from template |
+| /project/:id | ProjectPage — edit project, check readiness, render |
+| /settings | SettingsPage — API keys + live system health |
+| /template | TemplatePage — annotated template guide |
 
 ## Markdown Format
 
@@ -256,11 +272,25 @@ apps/api/src/
 └── __tests__/                  # Vitest test suite + helpers/factories/fixtures
 
 apps/web/src/
-├── api/                         # client, projectApi, renderApi, uploadApi, settingsApi,
-│                                # healthApi, templateApi
-├── components/                  # AppLayout, RenderProgress, VideoPlayer, TemplateEditor
-├── hooks/                      # useSSE, useProject, useRender, useUpload, useHealthCheck
-├── pages/                      # HomePage, ProjectPage, SettingsPage, TemplatePage
+├── api/                         # client, projectApi, renderApi, uploadApi,
+│                                # settingsApi, healthApi, templateApi
+├── components/                  # AppLayout, RenderProgress, VideoPlayer,
+│                                # TemplateEditor
+├── hooks/                      # useSSE, useProject, useRender, useUpload,
+│                                # useHealthCheck
+├── pages/                      # HomePage, ProjectPage, SettingsPage,
+│                                # TemplatePage
 ├── stores/                     # appStore (Zustand)
 └── types/                     # AppSettings, VideoProject types
 ```
+
+---
+
+## Session / Resumption Notes
+
+- **Last updated:** 2026-05-01
+- **MVP 2 commit:** `2f98370` (feat: implement MVP 2 — server settings, health checks, pipeline abort, template system)
+- **Current state:** MVP 1 and MVP 2 complete. All code committed to GitHub master. No uncommitted changes.
+- **Pre-existing issues (not yet fixed):** Some API test files have type issues (logger.pino not a function, ProviderName type mismatches, vitest globals) — these were present before MVP 2 and do not affect runtime.
+- **TemplateEditor component:** Used in both HomePage (modal overlay) and TemplatePage (modal). TemplatePage uses a dynamic `require('react-router-dom')` for `useNavigate` — unconventional but functional.
+- **How to resume:** Run `pnpm install && pnpm dev` to start all apps. GitHub repo: https://github.com/H012us/vidtoolkits
