@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
-dotenv.config();
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+dotenv.config({ path: path.resolve(fileURLToPath(import.meta.url), '../../../../../../.env') });
 
 const EnvSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
@@ -14,7 +16,7 @@ const EnvSchema = z.object({
   VOICEBOX_URL: z.string().url().default('http://127.0.0.1:17493'),
   // Performance
   NODE_MAX_OLD_SPACE_SIZE: z.coerce.number().int().min(512).max(8192).default(4096),
-  REMOTION_CONCURRENCY: z.coerce.number().int().min(1).max(8).optional(),
+  REMOTION_CONCURRENCY: z.preprocess(v => v === '' ? undefined : v, z.coerce.number().int().min(1).max(8).optional()),
   CACHE_DISK_MAX_MB: z.coerce.number().int().min(100).max(10240).default(2048),
   // Limits
   MAX_MD_SIZE_KB: z.coerce.number().int().min(50).max(10240).default(500),

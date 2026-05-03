@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import axios from 'axios';
 import { templateApi } from './templateApi';
 
-vi.mock('axios');
-const mockedAxios = axios as unknown as { [k: string]: ReturnType<typeof vi.fn> };
+vi.mock('./client', () => ({
+  api: {
+    get: vi.fn(),
+  },
+}));
+import { api } from './client';
 
 describe('templateApi', () => {
   beforeEach(() => {
@@ -12,14 +15,14 @@ describe('templateApi', () => {
 
   it('getMarkdownTemplate() resolves and returns template string', async () => {
     const template = '---';
-    mockedAxios.get = vi.fn().mockResolvedValue({ data: { template } });
+    (api.get as ReturnType<typeof vi.fn>).mockResolvedValue({ data: { template } });
     const result = await templateApi.getMarkdownTemplate();
     expect(result).toBe('---');
-    expect(mockedAxios.get).toHaveBeenCalledWith('/templates/markdown');
+    expect(api.get).toHaveBeenCalledWith('/templates/markdown');
   });
 
   it('getMarkdownTemplate() rejects and propagates error', async () => {
-    mockedAxios.get = vi.fn().mockRejectedValue(new Error('Not found'));
+    (api.get as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Not found'));
     await expect(templateApi.getMarkdownTemplate()).rejects.toThrow('Not found');
   });
 });

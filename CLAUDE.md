@@ -288,9 +288,15 @@ apps/web/src/
 
 ## Session / Resumption Notes
 
-- **Last updated:** 2026-05-01
-- **MVP 2 commit:** `2f98370` (feat: implement MVP 2 — server settings, health checks, pipeline abort, template system)
+- **Last updated:** 2026-05-02
+- **Latest commit:** `e61a3d2` (fix: align TemplateEditor, health/settings/template APIs to use shared axios client)
 - **Current state:** MVP 1 and MVP 2 complete. All code committed to GitHub master. No uncommitted changes.
 - **Pre-existing issues (not yet fixed):** Some API test files have type issues (logger.pino not a function, ProviderName type mismatches, vitest globals) — these were present before MVP 2 and do not affect runtime.
 - **TemplateEditor component:** Used in both HomePage (modal overlay) and TemplatePage (modal). TemplatePage uses a dynamic `require('react-router-dom')` for `useNavigate` — unconventional but functional.
 - **How to resume:** Run `pnpm install && pnpm dev` to start all apps. GitHub repo: https://github.com/H012us/vidtoolkits
+- **Test suite:** 257 tests (210 unit + 32 SIT + 15 web). All passing.
+  ```
+  cd apps/api && pnpm test     # 210 unit tests
+  cd apps/api && pnpm test:uat # 32 SIT tests
+  cd apps/web && pnpm test     # 15 web tests
+  ```
