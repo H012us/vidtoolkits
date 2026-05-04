@@ -61,28 +61,28 @@
 
 | # | Task | File(s) | Bug/Issue | Status |
 |---|------|---------|-----------|--------|
-| 1 | Fix `rawMarkdown` field | `VideoProjectEntity.ts`, `PipelineOrchestrator.ts`, `ProjectService.ts` | Orchestrator sets `rawMarkdown: createdAt` (timestamp), entity has no `rawMarkdown` field | PENDING |
-| 2 | Download images locally for Remotion | `PipelineOrchestrator.ts` | `MediaAsset` has remote URLs; Remotion in headless Chromium can't fetch thumbnails reliably; `buildCompositionsData` uses tiny thumbnails | PENDING |
-| 3 | Fix FFmpeg path quoting on Windows | `PipelineOrchestrator.ts` (`postProcessVideo`) | String interpolation `execAsync('ffmpeg "${path}"')` breaks on paths with spaces | PENDING |
-| 4 | Pass voice parameter to Edge-TTS | `EdgeTTSEngine.ts` | `MsEdgeTTS.toFile()` never receives the `voice` option — all Edge-TTS uses default voice | PENDING |
-| 5 | VideoPlayer shown after page refresh | `ProjectPage.tsx` | Condition `job?.outputPath` is null after refresh; `project.outputPath` exists but ignored | PENDING |
-| 6 | Gate Render button on health status | `ProjectPage.tsx` | "Render Video" always enabled; server returns `SERVICE_UNAVAILABLE` after user waits | PENDING |
+| 1 | Fix `rawMarkdown` field | `VideoProjectEntity.ts`, `PipelineOrchestrator.ts`, `ProjectService.ts` | Orchestrator sets `rawMarkdown: createdAt` (timestamp), entity has no `rawMarkdown` field | DONE ✅ |
+| 2 | Download images locally for Remotion | `PipelineOrchestrator.ts` | `MediaAsset` has remote URLs; Remotion in headless Chromium can't fetch thumbnails reliably; `buildCompositionsData` uses tiny thumbnails | DONE ✅ |
+| 3 | Fix FFmpeg path quoting on Windows | `PipelineOrchestrator.ts` (`postProcessVideo`) | String interpolation `execAsync('ffmpeg "${path}"')` breaks on paths with spaces | DONE ✅ |
+| 4 | Pass voice parameter to Edge-TTS | `EdgeTTSEngine.ts` | `MsEdgeTTS.toFile()` never receives the `voice` option — all Edge-TTS uses default voice | DONE ✅ |
+| 5 | VideoPlayer shown after page refresh | `ProjectPage.tsx` | Condition `job?.outputPath` is null after refresh; `project.outputPath` exists but ignored | DONE ✅ |
+| 6 | Gate Render button on health status | `ProjectPage.tsx` | "Render Video" always enabled; server returns `SERVICE_UNAVAILABLE` after user waits | DONE ✅ |
 
 **Reliability tasks:**
 
 | # | Task | File(s) | Bug/Issue | Status |
 |---|------|---------|-----------|--------|
-| 7 | Persist job progress during execution | `RenderService.ts`, `PipelineOrchestrator.ts` | `RenderJobEntity.setStep()` never called; job file stays `{progress: 0}` during render | PENDING |
-| 8 | Cleanup temp workDir after pipeline | `PipelineOrchestrator.ts` | `workDir/` (images, TTS files, remotion-entry.tsx) never deleted; disk space leak | PENDING |
-| 9 | Kill child processes on abort | `PipelineOrchestrator.ts`, `RenderService.ts` | `AbortController` only aborts async loop; FFmpeg/Remotion exec'd processes keep running | PENDING |
+| 7 | Persist job progress during execution | `RenderService.ts`, `PipelineOrchestrator.ts` | `RenderJobEntity.setStep()` never called; job file stays `{progress: 0}` during render | DONE ✅ |
+| 8 | Cleanup temp workDir after pipeline | `PipelineOrchestrator.ts` | `workDir/` (images, TTS files, remotion-entry.tsx) never deleted; disk space leak | DONE ✅ |
+| 9 | Kill child processes on abort | `PipelineOrchestrator.ts`, `RenderService.ts` | `AbortController` only aborts async loop; FFmpeg/Remotion exec'd processes keep running | DONE ✅ |
 
 **UX polish tasks:**
 
 | # | Task | File(s) | Bug/Issue | Status |
 |---|------|---------|-----------|--------|
-| 10 | Inline video playback | `VideoPlayer.tsx` | Only a download link; no `<video>` element | PENDING |
-| 11 | SSE reconnection with backoff | `useSSE.ts` | `EventSource.onerror` closes connection with no reconnect | PENDING |
-| 12 | Per-part error display | `RenderProgress.tsx`, `ProjectPage.tsx` | Error messages only in log scroll area; not shown in part cards | PENDING |
+| 10 | Inline video playback | `VideoPlayer.tsx` | Only a download link; no `<video>` element | DONE ✅ |
+| 11 | SSE reconnection with backoff | `useSSE.ts` | `EventSource.onerror` closes connection with no reconnect | DONE ✅ |
+| 12 | Per-part error display | `RenderProgress.tsx`, `ProjectPage.tsx` | Error messages only in log scroll area; not shown in part cards | DONE ✅ |
 
 **Verification task:**
 
@@ -324,12 +324,25 @@ apps/web/src/
 
 ## Session / Resumption Notes
 
-- **Last updated:** 2026-05-04
-- **Latest commit:** `f712db5` (fix: load .env from project root + handle empty REMOTION_CONCURRENCY)
-- **Current state:** MVP 1 and MVP 2 complete. All code committed to GitHub master. API server and web UI run with: `pnpm dev:api` + `pnpm dev:web` (Remotion Studio has a pre-existing `defineConfig` breaking change — see below).
+- **Last updated:** 2026-05-04 (evening)
+- **Latest commit:** `9703767` (feat: implement MVP 3 critical path + reliability fixes — 12 tasks completed, 1 smoke test pending)
+- **Current state:** MVP 1 ✅, MVP 2 ✅, MVP 3 — 12/13 tasks done, smoke test (task 13) pending.
 - **Pre-existing issues:**
   - Remotion Studio (`pnpm dev:remotion`) crashes on startup: `TypeError: (0, import_remotion.defineConfig) is not a function` — remotion 4.0.454 changed how `defineConfig` is exported. Run API and web separately: `pnpm dev:api` + `pnpm dev:web`.
   - Some API test files have type issues (logger.pino not a function, ProviderName type mismatches, vitest globals) — pre-existing, do not affect runtime.
+- **MVP 3 implemented this session (all 12 code tasks done — task 13 smoke test pending):**
+  - Task 1: Added `rawMarkdown` field to `VideoProjectEntity`, stored in `ProjectService.createFromMarkdown`, fixed `PipelineOrchestrator` to use `entity.rawMarkdown` instead of `createdAt` timestamp
+  - Task 2: Images downloaded locally for Remotion — `downloadImages()` downloads each image to `workDir/images/`, `buildCompositionsData` uses `img.localPath ?? img.url`
+  - Task 3: FFmpeg path quoting fixed — `postProcessVideo` and `measureDurations` now use `execFileAsync` with array args (no shell interpolation)
+  - Task 4: Edge-TTS voice parameter — now calls `tts.setMetadata(voiceName, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3)` before `toFile()`
+  - Task 5: VideoPlayer after refresh — `job?.outputPath ?? project.outputPath` fallback
+  - Task 6: Render button health gate — `disabled={isStarting || !allHealthy}` with tooltip
+  - Task 7: Job progress persistence — `persistJobProgress()` called on every SSE event
+  - Task 8: workDir cleanup — `finally` block calls `fs.rm(workDir, { recursive: true })`
+  - Task 9: Kill child processes on abort — `activeProcesses[]` tracks spawned processes, `killAllProcesses()` called on abort signal
+  - Task 10: Inline video playback — `<video controls src={downloadUrl}>` in VideoPlayer
+  - Task 11: SSE reconnection — exponential backoff (1s→2s→4s→8s→16s, max 5 retries), resets on `onopen`
+  - Task 12: Per-part errors — `useSSE` exposes `partErrors`, `RenderProgress` displays in part cards
 - **Bugs fixed this session (2026-05-04):**
   - `.env` root loading and `REMOTION_CONCURRENCY` empty-string crash fixed in prior session (2026-05-03).
   - FFmpeg/FFprobe binary check showed "Command failed:..." error — `checkBinary()` now resolves the full binary path via `where.exe ${name}` first, then executes with the quoted full path. This makes the check independent of the Node.js parent process's inherited PATH.
@@ -337,6 +350,13 @@ apps/web/src/
   - `HealthCheckService.testProvider()` and `checkImageProviders()` now read API keys from `SettingsService` instead of the DI container, making health checks consistent with the persisted settings store.
   - All media providers (`PixabayProvider`, `PexelsProvider`, `UnsplashProvider`) `isAvailable()` now throws on non-200 responses instead of silently returning `false` — health checks can now distinguish a configured-but-unavailable provider from a bad key.
   - SettingsPage "Test" button now shows inline feedback (green check or red error) after clicking, not just a spinner.
+- **Test suite:** 257 tests (210 unit + 32 SIT + 15 web). All passing.
+  ```
+  cd apps/api && pnpm test     # 210 unit tests
+  cd apps/api && pnpm test:uat # 32 SIT tests
+  cd apps/web && pnpm test     # 15 web tests
+  ```
+- **How to resume for smoke test (task 13):** Run `pnpm dev:api` + `pnpm dev:web`. Voicebox at `localhost:8000`, FFmpeg in PATH. Create project with 2 parts (valid keywords). Click Render Video. Verify all steps, video plays inline, persists after refresh.
 - **TemplateEditor component:** Used in both HomePage (modal overlay) and TemplatePage (modal). TemplatePage uses a dynamic `require('react-router-dom')` for `useNavigate` — unconventional but functional.
 - **How to resume:** Run `pnpm dev:api && pnpm dev:web` to start API and frontend. Voicebox must be running at `localhost:8000` for its health check to show green. FFmpeg installed at `C:\Users\Raw\Downloads\Compressed\ffmpeg\bin\` and added to PATH. GitHub repo: https://github.com/H012us/vidtoolkits
 - **Test suite:** 257 tests (210 unit + 32 SIT + 15 web). All passing.
