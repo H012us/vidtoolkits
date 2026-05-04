@@ -199,6 +199,30 @@ Run `pnpm dev`, test manually.
 - All media provider `isAvailable()` methods now throw on non-200 instead of silently returning `false`
 - SettingsPage "Test" button shows inline green check (success) or red error message after clicking
 
+### MVP 3 Implementation Results
+
+**Status: 12/13 code tasks implemented ✅ | Smoke test and Phase A/B unit tests pending**
+
+| # | Task | Implementation | Test Status |
+|---|------|---------------|-------------|
+| 1 | Fix rawMarkdown field | ✅ Added to entity, schema, orchestrator | Tests updated ✅ |
+| 2 | Download images locally | ✅ `downloadImages()` in orchestrator | Phase A tests A.1 (pending) |
+| 3 | FFmpeg path quoting | ✅ `execFileAsync` array args | — |
+| 4 | Edge-TTS voice param | ✅ `setMetadata()` before `toFile()` | — |
+| 5 | VideoPlayer after refresh | ✅ `job?.outputPath ?? project.outputPath` | — |
+| 6 | Render button health gate | ✅ `disabled={isStarting \|\| !allHealthy}` | — |
+| 7 | Persist job progress | ✅ `persistJobProgress()` on every SSE event | Phase A tests A.4 (pending) |
+| 8 | Cleanup workDir | ✅ `finally` block with `fs.rm()` | Phase A tests A.2 (pending) |
+| 9 | Kill child on abort | ✅ `activeProcesses[]` + `killAllProcesses()` | Phase A tests A.3 (pending) |
+| 10 | Inline video playback | ✅ `<video controls>` in VideoPlayer | Phase A tests A.5 (pending) |
+| 11 | SSE reconnection | ✅ Exponential backoff 1s→2s→4s→8s→16s | Phase A tests A.6 (pending) |
+| 12 | Per-part errors | ✅ `useSSE` tracks `partErrors`, RenderProgress shows | — |
+| 13 | Smoke test | PENDING | UAT C.1 (pending) |
+
+**All 257 tests (210 unit + 32 SIT + 15 web) still passing after implementation.**
+
+**Phase A unit tests A.1–A.6** and **Phase B SIT tests B.1–B.4** still need to be written (see test cases below). UAT scenarios C.1–C.7 still need to be executed by the user.
+
 ---
 
 ## MVP 3: End-to-End Video Render Testing

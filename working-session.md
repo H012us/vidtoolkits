@@ -1,4 +1,137 @@
-# Working Session Summary — 2026-05-04
+# Working Session Summary — 2026-05-04 (evening)
+
+## Starting Point
+
+Session resumed from 2026-05-04 afternoon. MVP 3 was fully planned (13 tasks), all docs updated, committed in `f9a6a57`. This session focused on implementing all 12 code tasks for MVP 3.
+
+## What We Did
+
+Implemented all 12 code tasks for MVP 3. Committed as `9703767`, docs updated in `ca0724c`.
+
+### Task 1 — Fix `rawMarkdown` bug ✅
+- Added `rawMarkdown: string` field to `VideoProjectEntity`, stored in constructor and `toJSON()`
+- Added defensive fallback `if (!entity.rawMarkdown) entity.rawMarkdown = ''` in `fromJSON()` for backward compatibility with old project files
+- Fixed `PipelineOrchestrator.run()`: changed `rawMarkdown: entity.toJSON().createdAt` → `rawMarkdown: entity.rawMarkdown`
+- Added `rawMarkdown: z.string()` to `VideoProjectSchema` in `packages/shared`
+
+### Task 2 — Download images locally for Remotion ✅
+- Added `imagesDir` in `run()` alongside `ttsDir`
+- Added `downloadImages(partStates, imagesDir)` method — downloads each image to `workDir/images/part-{partIdx}-{imgIdx}.{ext}` using `axios`
+- `guessExtension(url)` helper extracts extension from URL path
+- `buildCompositionsData` now uses `img.localPath ?? img.url` (prefers local path)
+- Failed downloads log a warning and fall back to remote URL — pipeline continues
+
+### Task 3 — Fix FFmpeg path quoting on Windows ✅
+- `postProcessVideo()`: replaced string interpolation `execAsync('ffmpeg ... "${path}"')` with `execFileAsync('ffmpeg', [args...])` — array args, no shell interpolation
+- `measureDurations()`: same fix for `ffprobe` — `execFileAsync('ffprobe', ['-v','error','-show_entries',...])`
+- Removed unused `spawn` import; kept `exec` for `spawnRemotionServer` and `checkQSVSupport`
+
+### Task 4 — Pass voice parameter to Edge-TTS ✅
+- `MsEdgeTTS.toFile()` doesn't accept a `voice` option — the voice is set via `setMetadata()`
+- Added import of `OUTPUT_FORMAT` enum
+- Before `toFile()`, now calls: `await this.tts.setMetadata(voiceName, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3)`
+
+### Task 5 — VideoPlayer shown after page refresh ✅
+- Changed `{isComplete && job?.outputPath && ...}` → `{isComplete && (job?.outputPath ?? project.outputPath) && ...}`
+- Refresh a completed project page → VideoPlayer now renders
+
+### Task 6 — Gate Render button on health status ✅
+- Added `disabled={isStarting || !allHealthy}` to "Render Video" button
+- Added `title` tooltip: "Check Readiness first — some services are unavailable"
+- Added `disabled:cursor-not-allowed` Tailwind class
+
+### Task 7 — Persist job progress during execution ✅
+- Added `persistJobProgress(jobId, step, progress)` private method in `RenderService`
+- `sendProgress()` callback now calls `persistJobProgress()` on every SSE event
+- `jobEntity.setStep(step, progress)` called and saved to disk
+
+### Task 8 — Cleanup temp workDir after pipeline ✅
+- Wrapped entire pipeline in try/finally
+- `finally` block: `killAllProcesses()` then `await this.cleanupWorkDir(workDir)`
+- `cleanupWorkDir()` uses `fs.rm(workDir, { recursive: true, force: true })` with warning on error
+
+### Task 9 — Kill child processes on abort ✅
+- Added `private activeProcesses: ChildProcess[] = []` field
+- `spawnRemotionServer()` pushes the server process to `activeProcesses`
+- `killAllProcesses()` iterates and kills all tracked processes
+- Abort signal listener calls `killAllProcesses()`
+- After Remotion render completes, server is removed from `activeProcesses`
+
+### Task 10 — Inline video playback ✅
+- Replaced placeholder div with `<video controls src={downloadUrl} class="w-full h-full">`
+- Kept download button below
+
+### Task 11 — SSE reconnection with exponential backoff ✅
+- Added `retryCountRef` and `retryTimerRef` refs
+- `onerror`: if retryCount < 5, schedules reconnect with `delay = 1000 * 2^retryCount` (1s→2s→4s→8s→16s)
+- `onopen`: resets `retryCountRef` to 0
+- Cleanup clears timer on disconnect
+
+### Task 12 — Per-part error display ✅
+- `useSSE` now tracks `partErrors: Record<number, string>` in state
+- SSE `type: 'error'` with `partIndex` updates `partErrors`
+- `onError` callback now accepts `(message, partIndex?)`
+- `RenderProgress` accepts `partErrors?: Record<number, string>` prop
+- Part cards in grid show error message below the status icon
+
+### Test Updates
+- `VideoProjectEntity.test.ts`: added `rawMarkdown` to `toJSON()` test, `fromJSON()` data, and constructor call
+- `ProjectController.test.ts`: added `rawMarkdown` to `makeVideoProject()` fixture
+- `render.test.ts`: added `rawMarkdown` to entity constructor
+- All 257 tests still passing
+
+## Files Modified
+
+```
+apps/api/src/__tests__/routes/render.test.ts              — +rawMarkdown in entity constructor
+apps/api/src/application/services/PipelineOrchestrator.ts  — tasks 1,2,3,7,8,9 (major refactor)
+apps/api/src/application/services/RenderService.ts         — tasks 7,9 (persistJobProgress, pass signal)
+apps/api/src/domain/entities/VideoProjectEntity.test.ts   — +rawMarkdown field
+apps/api/src/domain/entities/VideoProjectEntity.ts        — +rawMarkdown field + fromJSON fallback
+apps/api/src/infrastructure/tts-engines/EdgeTTSEngine.ts — task 4 (setMetadata + OUTPUT_FORMAT)
+apps/api/src/presentation/controllers/ProjectController.test.ts — +rawMarkdown in fixture
+apps/web/src/components/RenderProgress.tsx                — task 12 (partErrors prop + display)
+apps/web/src/components/VideoPlayer.tsx                   — task 10 (<video controls>)
+apps/web/src/hooks/useSSE.ts                              — task 11 (reconnection backoff) + task 12
+apps/web/src/pages/ProjectPage.tsx                        — tasks 5,6,12 (fallback, gate, partErrors)
+packages/shared/src/types/VideoProject.ts                  — +rawMarkdown to schema
+CLAUDE.md                                                — task statuses updated to DONE
+```
+
+## Test Results
+
+```
+cd apps/api && pnpm test     # 210 unit tests ✅
+cd apps/api && pnpm test:uat # 32 SIT tests ✅
+cd apps/web && pnpm test     # 15 web tests ✅
+```
+
+## Commits
+
+```
+ca0724c docs: update MVP 3 task statuses to DONE in CLAUDE.md
+9703767 feat: implement MVP 3 critical path + reliability fixes  ← MVP 3 code
+f9a6a57 docs: define MVP 3 — end-to-end video render
+45cb292 fix: resolve FFmpeg/FFprobe via where.exe + improve health check UX
+```
+
+## How to Resume
+
+1. Start servers: `pnpm dev:api` + `pnpm dev:web`
+2. Voicebox at `localhost:8000`, FFmpeg in PATH
+3. **Remaining: Task 13 — Smoke test (UAT C.1)**: Create project with 2 parts (valid keywords), render, verify all steps, video plays inline, persists after refresh
+4. test.md: Unit tests A.1–A.6 and SIT tests B.1–B.4 still need to be written (test plan in test.md, implementation is done)
+5. UAT scenarios C.2–C.7 also still need to be executed by user
+
+## Session / Resumption Notes (continued)
+
+### UAT Results from Prior Session
+
+| Test | Result | Notes |
+|------|--------|-------|
+| UAT 3.2 | PASS ✅ | FFmpeg fix worked. All binaries show green. |
+
+---
 
 ## Starting Point
 
