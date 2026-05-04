@@ -7,13 +7,14 @@ interface VideoPlayerProps {
 export function VideoPlayer({ downloadUrl }: VideoPlayerProps) {
   return (
     <section className="bg-gray-900 rounded-xl overflow-hidden">
-      <div className="aspect-video bg-black flex items-center justify-center">
-        <div className="text-center space-y-3">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-brand-900/50 text-brand-400">
-            <Play className="h-8 w-8 ml-1" />
-          </div>
-          <p className="text-gray-400 text-sm">Video ready to download</p>
-        </div>
+      <div className="aspect-video bg-black">
+        <video
+          controls
+          src={downloadUrl}
+          className="w-full h-full"
+        >
+          Your browser does not support inline video playback.
+        </video>
       </div>
       <div className="p-4 flex justify-end">
         <a

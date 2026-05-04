@@ -68,6 +68,7 @@ describe('UAT: Render endpoint', () => {
       title: 'Render Test Project',
       style: 'cinematic',
       voiceName: 'en-US-AriaNeural',
+      rawMarkdown: '## Render Test\n\nSome content.',
     });
     entity.parts = [{
       partIndex: 0,

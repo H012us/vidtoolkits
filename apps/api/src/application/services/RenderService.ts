@@ -122,6 +122,9 @@ export class RenderService {
         partTitle,
         timestamp: new Date().toISOString(),
       });
+
+      // Persist job progress to disk
+      this.persistJobProgress(jobId, step, progress);
     };
 
     try {
@@ -133,7 +136,7 @@ export class RenderService {
         remotionConcurrency: CONFIG.performance.remotionConcurrency,
         nodeMaxOldSpaceMB: CONFIG.performance.nodeMaxOldSpaceMB,
         cacheDiskMaxMB: CONFIG.performance.cacheDiskMaxMB,
-      }, sendProgress);
+      }, sendProgress, signal);
 
       const jobData = await this.jobStore.get(jobId);
       if (jobData) {
@@ -183,5 +186,13 @@ export class RenderService {
     if (controller) {
       controller.abort();
     }
+  }
+
+  private async persistJobProgress(jobId: string, step: PipelineStepName, progress: number): Promise<void> {
+    const jobData = await this.jobStore.get(jobId);
+    if (!jobData) return;
+    const entity = RenderJobEntity.fromJSON(jobData);
+    entity.setStep(step, progress);
+    await this.jobStore.save(entity.toJSON());
   }
 }

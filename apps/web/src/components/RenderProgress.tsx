@@ -9,6 +9,7 @@ interface RenderProgressProps {
   outputPath?: string;
   onStop?: () => void;
   partStatuses?: Array<{ title: string; status: 'pending' | 'running' | 'completed' | 'failed' }>;
+  partErrors?: Record<number, string>;
 }
 
 const STEP_LABELS: Record<string, string> = {
@@ -43,6 +44,7 @@ export function RenderProgress({
   status,
   onStop,
   partStatuses,
+  partErrors = {},
 }: RenderProgressProps) {
   const steps = [
     'PARSE_MARKDOWN',
@@ -132,16 +134,21 @@ export function RenderProgress({
           <p className="text-xs text-gray-500 uppercase tracking-wider">Parts</p>
           <div className="grid grid-cols-3 gap-2">
             {partStatuses.map((part, i) => (
-              <div key={i} className={`text-xs py-1.5 px-3 rounded-lg flex items-center gap-2 ${
+              <div key={i} className={`text-xs py-1.5 px-3 rounded-lg flex flex-col gap-1 ${
                 part.status === 'completed' ? 'bg-green-900/30 text-green-400' :
                 part.status === 'failed' ? 'bg-red-900/30 text-red-400' :
                 part.status === 'running' ? 'bg-brand-900/30 text-brand-400' :
                 'bg-gray-800 text-gray-600'
               }`}>
-                {part.status === 'completed' && <CheckCircle className="h-3 w-3 flex-shrink-0" />}
-                {part.status === 'failed' && <XCircle className="h-3 w-3 flex-shrink-0" />}
-                {part.status === 'running' && <span className="h-3 w-3 rounded-full border border-brand-400 border-t-transparent animate-spin flex-shrink-0" />}
-                <span className="truncate">Part {i + 1}: {part.title}</span>
+                <div className="flex items-center gap-2">
+                  {part.status === 'completed' && <CheckCircle className="h-3 w-3 flex-shrink-0" />}
+                  {part.status === 'failed' && <XCircle className="h-3 w-3 flex-shrink-0" />}
+                  {part.status === 'running' && <span className="h-3 w-3 rounded-full border border-brand-400 border-t-transparent animate-spin flex-shrink-0" />}
+                  <span className="truncate">Part {i + 1}: {part.title}</span>
+                </div>
+                {part.status === 'failed' && partErrors[i] && (
+                  <p className="text-red-300 text-xs pl-5 truncate" title={partErrors[i]}>{partErrors[i]}</p>
+                )}
               </div>
             ))}
           </div>

@@ -1,6 +1,7 @@
 import pLimit from 'p-limit';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import axios from 'axios';
 import type {
   PipelineContext,
   PipelineConfig,
@@ -17,15 +18,18 @@ import { VideoProjectEntity } from '../../domain/entities/index.js';
 import { RenderError, TTSError } from '../../domain/errors/index.js';
 import { logger } from '../../infrastructure/logger.js';
 import { ensureDir } from '../../infrastructure/fsUtils.js';
-import { exec } from 'node:child_process';
+import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { ChildProcess } from 'node:child_process';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 type ProgressCallback = (step: PipelineStepName, progress: number, message?: string, partIndex?: number, partTitle?: string) => void;
 
 export class PipelineOrchestrator {
   private projectStore: FileSystemProjectStore;
+  private activeProcesses: ChildProcess[] = [];
 
   constructor(
     private readonly mediaRegistry: MediaProviderRegistry,
@@ -38,7 +42,8 @@ export class PipelineOrchestrator {
   async run(
     projectId: string,
     pipelineConfig: PipelineConfig,
-    onProgress?: ProgressCallback
+    onProgress?: ProgressCallback,
+    abortSignal?: AbortSignal
   ): Promise<PipelineResult> {
     const startTime = Date.now();
     const stepsCompleted: PipelineStepName[] = [];
@@ -54,10 +59,12 @@ export class PipelineOrchestrator {
     await ensureDir(workDir);
     const ttsDir = path.join(workDir, 'tts');
     await ensureDir(ttsDir);
+    const imagesDir = path.join(workDir, 'images');
+    await ensureDir(imagesDir);
 
     const ctx: PipelineContext = {
       projectId,
-      rawMarkdown: entity.toJSON().createdAt,
+      rawMarkdown: entity.rawMarkdown,
       parsedProject: null,
       partStates: entity.parts.map(p => ({
         partIndex: p.partIndex,
@@ -84,105 +91,129 @@ export class PipelineOrchestrator {
       onProgress?.(step, progress, message, partIndex, partTitle);
     };
 
-    // Step 1: FETCH_IMAGES
-    report('FETCH_IMAGES', 10, 'Fetching images for each part...');
-    const imageLimit = pLimit(pipelineConfig.maxConcurrentImages);
-    try {
-      await Promise.all(
-        ctx.partStates.map((part, i) =>
-          imageLimit(async () => {
-            const results = await this.mediaRegistry.search(part.keywords, 5);
-            ctx.partStates[i].images = results;
-            ctx.partStates[i].status = 'completed';
-            report('FETCH_IMAGES', 10 + Math.round(((i + 1) / ctx.partStates.length) * 20), `Part ${i + 1} (${part.title}): ${results.length} images found`, i, part.title);
-          })
-        )
-      );
-    } catch (err) {
-      ctx.partStates.forEach((p) => { if (p.status === 'pending') p.status = 'failed'; });
-      const errMsg = (err as Error).message;
-      ctx.errors.push({ step: 'FETCH_IMAGES', message: errMsg, recoverable: false, timestamp: new Date() });
-      throw new RenderError(`FETCH_IMAGES failed: ${errMsg}`);
-    }
-    stepsCompleted.push('FETCH_IMAGES');
-
-    // Step 2: GENERATE_TTS
-    report('GENERATE_TTS', 35, 'Generating voice-over...');
-    const ttsLimit = pLimit(pipelineConfig.maxConcurrentTTS);
-    try {
-      await Promise.all(
-        ctx.partStates.map((part, i) =>
-          ttsLimit(async () => {
-            const ttsPath = path.join(ttsDir, `part-${i}.mp3`);
-            const result = await this.generateTTS(part.script, ttsPath, entity.voiceName);
-            ctx.partStates[i].ttsPath = result.path;
-            ctx.partStates[i].durationSeconds = result.durationSeconds;
-            ctx.partStates[i].status = 'completed';
-            report('GENERATE_TTS', 35 + Math.round(((i + 1) / ctx.partStates.length) * 25), `Part ${i + 1} (${part.title}): ${result.durationSeconds.toFixed(1)}s voice-over`, i, part.title);
-          })
-        )
-      );
-    } catch (err) {
-      ctx.partStates.forEach((p) => { if (p.status === 'pending') p.status = 'failed'; });
-      const errMsg = (err as Error).message;
-      ctx.errors.push({ step: 'GENERATE_TTS', message: errMsg, recoverable: false, timestamp: new Date() });
-      throw new RenderError(`GENERATE_TTS failed: ${errMsg}`);
-    }
-    stepsCompleted.push('GENERATE_TTS');
-
-    // Step 3: MEASURE DURATIONS
-    report('MEASURE_DURATIONS', 65, 'Measuring audio durations...');
-    await this.measureDurations(ctx.partStates, ttsDir);
-    stepsCompleted.push('MEASURE_DURATIONS');
-    report('MEASURE_DURATIONS', 70, 'Durations measured');
-
-    // Step 4: ASSEMBLE_COMPOSITION
-    report('ASSEMBLE_COMPOSITION', 72, 'Assembling video composition...');
-    const compositionsData = this.buildCompositionsData(ctx.partStates, entity.title, workDir);
-    await fs.writeFile(
-      path.join(workDir, 'compositions.json'),
-      JSON.stringify(compositionsData, null, 2),
-      'utf-8'
-    );
-    stepsCompleted.push('ASSEMBLE_COMPOSITION');
-    report('ASSEMBLE_COMPOSITION', 75, 'Composition assembled');
-
-    // Step 5: RENDER_VIDEO
-    report('RENDER_VIDEO', 78, 'Rendering video with Remotion...');
-    let outputPath: string;
-    try {
-      outputPath = await this.renderWithRemotion(compositionsData, workDir, pipelineConfig.outputDir, pipelineConfig.remotionConcurrency, (p) => {
-        report('RENDER_VIDEO', 78 + Math.round(p * 15), `Rendering: ${p}%`);
-      });
-    } catch (err) {
-      const errMsg = (err as Error).message;
-      ctx.errors.push({ step: 'RENDER_VIDEO', message: errMsg, recoverable: false, timestamp: new Date() });
-      await this.failProject(projectId, errMsg);
-      throw new RenderError(`RENDER_VIDEO failed: ${errMsg}`);
-    }
-    stepsCompleted.push('RENDER_VIDEO');
-
-    // Step 6: POST_PROCESS (FFmpeg H.265/QSV)
-    report('POST_PROCESS', 95, 'Post-processing video...');
-    const finalPath = await this.postProcessVideo(outputPath, pipelineConfig.outputDir);
-    stepsCompleted.push('POST_PROCESS');
-
-    // Step 7: DELIVER_RESULT
-    report('DELIVER_RESULT', 98, 'Delivering result...');
-    await this.completeProject(projectId, finalPath);
-    stepsCompleted.push('DELIVER_RESULT');
-
-    const finalResult: PipelineResult = {
-      projectId,
-      outputPath: finalPath,
-      success: true,
-      stepsCompleted,
-      errors: ctx.errors,
-      totalDurationMs: Date.now() - startTime,
+    const killAllProcesses = () => {
+      for (const proc of this.activeProcesses) {
+        try { proc.kill(); } catch { /* ignore */ }
+      }
+      this.activeProcesses = [];
     };
 
-    logger.info({ projectId, duration: finalResult.totalDurationMs }, 'Pipeline completed successfully');
-    return finalResult;
+    if (abortSignal) {
+      abortSignal.addEventListener('abort', () => {
+        killAllProcesses();
+      }, { once: true });
+    }
+
+    let result: PipelineResult;
+    try {
+      // Step 1: FETCH_IMAGES
+      report('FETCH_IMAGES', 10, 'Fetching images for each part...');
+      const imageLimit = pLimit(pipelineConfig.maxConcurrentImages);
+      try {
+        await Promise.all(
+          ctx.partStates.map((part, i) =>
+            imageLimit(async () => {
+              const results = await this.mediaRegistry.search(part.keywords, 5);
+              ctx.partStates[i].images = results;
+              ctx.partStates[i].status = 'completed';
+              report('FETCH_IMAGES', 10 + Math.round(((i + 1) / ctx.partStates.length) * 20), `Part ${i + 1} (${part.title}): ${results.length} images found`, i, part.title);
+            })
+          )
+        );
+      } catch (err) {
+        ctx.partStates.forEach((p) => { if (p.status === 'pending') p.status = 'failed'; });
+        const errMsg = (err as Error).message;
+        ctx.errors.push({ step: 'FETCH_IMAGES', message: errMsg, recoverable: false, timestamp: new Date() });
+        throw new RenderError(`FETCH_IMAGES failed: ${errMsg}`);
+      }
+      stepsCompleted.push('FETCH_IMAGES');
+
+      // Download images locally for Remotion (headless Chromium needs local files)
+      report('FETCH_IMAGES', 25, 'Downloading images locally...');
+      await this.downloadImages(ctx.partStates, imagesDir);
+      stepsCompleted.push('FETCH_IMAGES');
+
+      // Step 2: GENERATE_TTS
+      report('GENERATE_TTS', 35, 'Generating voice-over...');
+      const ttsLimit = pLimit(pipelineConfig.maxConcurrentTTS);
+      try {
+        await Promise.all(
+          ctx.partStates.map((part, i) =>
+            ttsLimit(async () => {
+              const ttsPath = path.join(ttsDir, `part-${i}.mp3`);
+              const result = await this.generateTTS(part.script, ttsPath, entity.voiceName);
+              ctx.partStates[i].ttsPath = result.path;
+              ctx.partStates[i].durationSeconds = result.durationSeconds;
+              ctx.partStates[i].status = 'completed';
+              report('GENERATE_TTS', 35 + Math.round(((i + 1) / ctx.partStates.length) * 25), `Part ${i + 1} (${part.title}): ${result.durationSeconds.toFixed(1)}s voice-over`, i, part.title);
+            })
+          )
+        );
+      } catch (err) {
+        ctx.partStates.forEach((p) => { if (p.status === 'pending') p.status = 'failed'; });
+        const errMsg = (err as Error).message;
+        ctx.errors.push({ step: 'GENERATE_TTS', message: errMsg, recoverable: false, timestamp: new Date() });
+        throw new RenderError(`GENERATE_TTS failed: ${errMsg}`);
+      }
+      stepsCompleted.push('GENERATE_TTS');
+
+      // Step 3: MEASURE DURATIONS
+      report('MEASURE_DURATIONS', 65, 'Measuring audio durations...');
+      await this.measureDurations(ctx.partStates, ttsDir);
+      stepsCompleted.push('MEASURE_DURATIONS');
+      report('MEASURE_DURATIONS', 70, 'Durations measured');
+
+      // Step 4: ASSEMBLE_COMPOSITION
+      report('ASSEMBLE_COMPOSITION', 72, 'Assembling video composition...');
+      const compositionsData = this.buildCompositionsData(ctx.partStates, entity.title, workDir);
+      await fs.writeFile(
+        path.join(workDir, 'compositions.json'),
+        JSON.stringify(compositionsData, null, 2),
+        'utf-8'
+      );
+      stepsCompleted.push('ASSEMBLE_COMPOSITION');
+      report('ASSEMBLE_COMPOSITION', 75, 'Composition assembled');
+
+      // Step 5: RENDER_VIDEO
+      report('RENDER_VIDEO', 78, 'Rendering video with Remotion...');
+      let outputPath: string;
+      try {
+        outputPath = await this.renderWithRemotion(compositionsData, workDir, pipelineConfig.outputDir, pipelineConfig.remotionConcurrency, (p) => {
+          report('RENDER_VIDEO', 78 + Math.round(p * 15), `Rendering: ${p}%`);
+        });
+      } catch (err) {
+        const errMsg = (err as Error).message;
+        ctx.errors.push({ step: 'RENDER_VIDEO', message: errMsg, recoverable: false, timestamp: new Date() });
+        await this.failProject(projectId, errMsg);
+        throw new RenderError(`RENDER_VIDEO failed: ${errMsg}`);
+      }
+      stepsCompleted.push('RENDER_VIDEO');
+
+      // Step 6: POST_PROCESS (FFmpeg H.265/QSV)
+      report('POST_PROCESS', 95, 'Post-processing video...');
+      const finalPath = await this.postProcessVideo(outputPath, pipelineConfig.outputDir);
+      stepsCompleted.push('POST_PROCESS');
+
+      // Step 7: DELIVER_RESULT
+      report('DELIVER_RESULT', 98, 'Delivering result...');
+      await this.completeProject(projectId, finalPath);
+      stepsCompleted.push('DELIVER_RESULT');
+
+      result = {
+        projectId,
+        outputPath: finalPath,
+        success: true,
+        stepsCompleted,
+        errors: ctx.errors,
+        totalDurationMs: Date.now() - startTime,
+      };
+    } finally {
+      killAllProcesses();
+      await this.cleanupWorkDir(workDir);
+    }
+
+    logger.info({ projectId, duration: result.totalDurationMs }, 'Pipeline completed successfully');
+    return result;
   }
 
   private async generateTTS(text: string, outputPath: string, voice: string): Promise<TTSResult> {
@@ -204,10 +235,12 @@ export class PipelineOrchestrator {
     for (const part of partStates) {
       if (!part.ttsPath) continue;
       try {
-        const { stdout } = await execAsync(
-          `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${part.ttsPath}"`,
-          { timeout: 10000 }
-        );
+        const { stdout } = await execFileAsync('ffprobe', [
+          '-v', 'error',
+          '-show_entries', 'format=duration',
+          '-of', 'default=noprint_wrappers=1:nokey=1',
+          part.ttsPath!,
+        ], { timeout: 10000 });
         const duration = parseFloat(stdout.trim());
         if (!isNaN(duration)) part.durationSeconds = duration;
       } catch {
@@ -232,7 +265,7 @@ export class PipelineOrchestrator {
         index: i,
         title: p.title,
         script: p.script,
-        images: p.images.map(img => img.thumbnailUrl ?? img.url),
+        images: p.images.map(img => img.localPath ?? img.url),
         ttsPath: p.ttsPath,
         durationSeconds: p.durationSeconds ?? 8,
         keywords: p.keywords,
@@ -261,6 +294,7 @@ export class PipelineOrchestrator {
     // Spawn a temporary Remotion preview server that bundles the entry point
     const remotionDir = path.resolve(this.config.paths.remotionDir);
     const server = this.spawnRemotionServer(remotionEntry, remotionDir);
+    this.activeProcesses.push(server);
 
     try {
       // Wait for server to be ready
@@ -295,6 +329,7 @@ export class PipelineOrchestrator {
 
       return outputFile;
     } finally {
+      this.activeProcesses = this.activeProcesses.filter(p => p !== server);
       server.kill();
     }
   }
@@ -375,23 +410,22 @@ export const VideoComposition = ({ data }: { data: any }) => {
 
     const hasQSV = await this.checkQSVSupport();
     const codec = hasQSV ? 'hevc_qsv' : 'libx265';
-    const preset = hasQSV ? 'medium' : 'medium';
 
-    const args = [
+    const args: string[] = [
       '-y',
-      '-i', `"${inputPath}"`,
+      '-i', inputPath,
       '-c:v', codec,
       ...(hasQSV ? ['-load_plugin', 'hevc_hw'] : []),
-      '-preset', preset,
+      '-preset', 'medium',
       '-crf', '23',
       '-c:a', 'aac',
       '-b:a', '192k',
       '-movflags', '+faststart',
-      `"${outputFile}"`,
-    ].join(' ');
+      outputFile,
+    ];
 
     try {
-      await execAsync(`ffmpeg ${args}`, { timeout: 300000 });
+      await execFileAsync('ffmpeg', args, { timeout: 300000 });
     } catch (err) {
       logger.warn({ err }, 'FFmpeg post-processing failed, using original');
       return inputPath;
@@ -425,6 +459,49 @@ export const VideoComposition = ({ data }: { data: any }) => {
     const entity = VideoProjectEntity.fromJSON(project);
     entity.setError(errorMsg);
     await this.projectStore.save(entity.toJSON());
+  }
+
+  private async downloadImages(partStates: PartState[], imagesDir: string): Promise<void> {
+    const imageLimit = pLimit(6);
+    const downloadTasks: Promise<void>[] = [];
+
+    for (const [partIdx, part] of partStates.entries()) {
+      for (const [imgIdx, img] of part.images.entries()) {
+        downloadTasks.push(
+          imageLimit(async () => {
+            const ext = this.guessExtension(img.url) ?? 'jpg';
+            const localPath = path.join(imagesDir, `part-${partIdx}-${imgIdx}.${ext}`);
+            try {
+              const response = await axios.get(img.url, { responseType: 'arraybuffer', timeout: 15000 });
+              await fs.writeFile(localPath, Buffer.from(response.data));
+              img.localPath = localPath;
+            } catch (err) {
+              logger.warn({ imageUrl: img.url, err }, 'Failed to download image, using remote URL');
+              img.localPath = undefined;
+            }
+          })
+        );
+      }
+    }
+
+    await Promise.all(downloadTasks);
+  }
+
+  private guessExtension(url: string): string | null {
+    try {
+      const u = new URL(url);
+      const ext = u.pathname.split('/').pop()?.split('.').pop();
+      if (ext && /^[a-z0-9]+$/i.test(ext)) return ext;
+    } catch { /* ignore */ }
+    return null;
+  }
+
+  private async cleanupWorkDir(workDir: string): Promise<void> {
+    try {
+      await fs.rm(workDir, { recursive: true, force: true });
+    } catch (err) {
+      logger.warn({ workDir, err }, 'Failed to clean up work directory');
+    }
   }
 
 }

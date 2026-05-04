@@ -21,6 +21,7 @@ export class VideoProjectEntity implements VideoProject {
   updatedAt: string;
   outputPath: string | null;
   error: string | null;
+  rawMarkdown: string;
 
   constructor(data: CreateVideoProjectInput) {
     this.id = uuidv4();
@@ -34,6 +35,7 @@ export class VideoProjectEntity implements VideoProject {
     this.updatedAt = new Date().toISOString();
     this.outputPath = null;
     this.error = null;
+    this.rawMarkdown = data.rawMarkdown;
   }
 
   updateStatus(status: VideoProject['status']): void {
@@ -65,12 +67,14 @@ export class VideoProjectEntity implements VideoProject {
       updatedAt: this.updatedAt,
       outputPath: this.outputPath,
       error: this.error,
+      rawMarkdown: this.rawMarkdown,
     };
   }
 
   static fromJSON(data: VideoProject): VideoProjectEntity {
     const entity = Object.create(VideoProjectEntity.prototype);
     Object.assign(entity, data);
+    if (!entity.rawMarkdown) entity.rawMarkdown = '';
     return entity;
   }
 }

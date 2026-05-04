@@ -19,6 +19,7 @@ function makeVideoProject(overrides: Partial<VideoProject> = {}): VideoProject {
     updatedAt: now,
     outputPath: null,
     error: null,
+    rawMarkdown: '# Test Project\n\nSome content.',
     ...overrides,
   };
 }

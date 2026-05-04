@@ -4,7 +4,7 @@ import { VideoProjectEntity } from './VideoProjectEntity.js';
 describe('VideoProjectEntity', () => {
   describe('constructor', () => {
     it('assigns a new UUID', () => {
-      const entity = new VideoProjectEntity({ title: 'Test' });
+      const entity = new VideoProjectEntity({ title: 'Test', rawMarkdown: '' });
       expect(entity.id).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
       );
@@ -111,6 +111,7 @@ describe('VideoProjectEntity', () => {
         updatedAt: entity.updatedAt,
         outputPath: '/path/to/video.mp4',
         error: null,
+        rawMarkdown: '',
       });
     });
   });
@@ -129,6 +130,7 @@ describe('VideoProjectEntity', () => {
         updatedAt: '2024-01-01T00:00:00.000Z',
         outputPath: null,
         error: null,
+        rawMarkdown: '# Test content',
       };
 
       const entity = VideoProjectEntity.fromJSON(data);
@@ -151,6 +153,7 @@ describe('VideoProjectEntity', () => {
         updatedAt: new Date().toISOString(),
         outputPath: null,
         error: null,
+        rawMarkdown: '## Proto',
       });
 
       entity.updateStatus('processing');

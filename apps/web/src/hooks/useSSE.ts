@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { SSEEvent } from '../api/renderApi';
 
+const MAX_RETRIES = 5;
+const BASE_DELAY_MS = 1000;
+
 interface UseSSEOptions {
   onStep?: (step: string, progress: number, message: string, partIndex?: number, partTitle?: string) => void;
-  onError?: (message: string) => void;
+  onError?: (message: string, partIndex?: number) => void;
   onComplete?: (data: unknown) => void;
   onHeartbeat?: () => void;
   onStopped?: () => void;
@@ -14,15 +17,26 @@ export function useSSE(projectId: string | null, options: UseSSEOptions = {}) {
   const [currentStep, setCurrentStep] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [log, setLog] = useState<string[]>([]);
+  const [partErrors, setPartErrors] = useState<Record<number, string>>({});
   const esRef = useRef<EventSource | null>(null);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const connect = useCallback(() => {
     if (!projectId) return;
 
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+
     const es = new EventSource(`/api/render/${projectId}/status`);
     esRef.current = es;
 
-    es.onopen = () => setConnected(true);
+    es.onopen = () => {
+      setConnected(true);
+      retryCountRef.current = 0;
+    };
 
     es.onmessage = (event) => {
       try {
@@ -51,8 +65,12 @@ export function useSSE(projectId: string | null, options: UseSSEOptions = {}) {
 
         if (data.type === 'error') {
           const prefix = data.partIndex !== undefined ? `Part ${data.partIndex + 1}` : 'Error';
-          setLog(l => [...l, `[ERROR] ${prefix}: ${data.message}`]);
-          options.onError?.(data.message ?? 'Unknown error');
+          const errMsg = data.message ?? 'Unknown error';
+          setLog(l => [...l, `[ERROR] ${prefix}: ${errMsg}`]);
+          if (data.partIndex !== undefined) {
+            setPartErrors(prev => ({ ...prev, [data.partIndex!]: errMsg }));
+          }
+          options.onError?.(errMsg, data.partIndex);
         }
 
         if (data.type === 'complete') {
@@ -76,11 +94,24 @@ export function useSSE(projectId: string | null, options: UseSSEOptions = {}) {
     es.onerror = () => {
       setConnected(false);
       es.close();
+      esRef.current = null;
+
+      if (retryCountRef.current < MAX_RETRIES) {
+        const delay = BASE_DELAY_MS * Math.pow(2, retryCountRef.current);
+        retryCountRef.current++;
+        retryTimerRef.current = setTimeout(() => {
+          connect();
+        }, delay);
+      }
     };
 
     return () => {
       es.close();
       setConnected(false);
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
     };
   }, [projectId]);
 
@@ -92,5 +123,5 @@ export function useSSE(projectId: string | null, options: UseSSEOptions = {}) {
     };
   }, [connect]);
 
-  return { connected, currentStep, progress, log };
+  return { connected, currentStep, progress, log, partErrors };
 }

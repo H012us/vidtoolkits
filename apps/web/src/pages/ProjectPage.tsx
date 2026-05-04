@@ -19,7 +19,7 @@ export function ProjectPage() {
   const [showHealthModal, setShowHealthModal] = useState(false);
   const [partStatuses, setPartStatuses] = useState<Array<{ title: string; status: 'pending' | 'running' | 'completed' | 'failed' }>>([]);
 
-  const { connected, progress, log } = useSSE(id ?? null, {
+  const { connected, progress, log, partErrors } = useSSE(id ?? null, {
     onComplete: () => toast.success('Video rendered successfully!'),
     onError: (msg) => toast.error(`Render error: ${msg}`),
     onStep: (_step, _progress, _message, partIndex, partTitle) => {
@@ -108,8 +108,9 @@ export function ProjectPage() {
             </button>
             <button
               onClick={() => startRender()}
-              disabled={isStarting}
-              className="flex items-center gap-2 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+              disabled={isStarting || !allHealthy}
+              title={!allHealthy ? 'Check Readiness first — some services are unavailable' : ''}
+              className="flex items-center gap-2 bg-brand-600 hover:bg-brand-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium transition-colors"
             >
               <Play className="h-4 w-4" />
               {isStarting ? 'Starting...' : 'Render Video'}
@@ -190,11 +191,12 @@ export function ProjectPage() {
           outputPath={job?.outputPath ?? project.outputPath ?? undefined}
           onStop={isRendering ? handleStop : undefined}
           partStatuses={displayPartStatuses}
+          partErrors={partErrors}
         />
       )}
 
       {/* Video Player */}
-      {isComplete && job?.outputPath && (
+      {isComplete && (job?.outputPath ?? project.outputPath) && (
         <VideoPlayer downloadUrl={`/api/render/${id}/download`} />
       )}
     </div>

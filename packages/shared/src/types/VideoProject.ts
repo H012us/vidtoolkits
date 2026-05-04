@@ -36,6 +36,7 @@ export const VideoProjectSchema = z.object({
   updatedAt: z.string(),
   outputPath: z.string().nullable().optional(),
   error: z.string().nullable().optional(),
+  rawMarkdown: z.string(),
 });
 
 export type MediaAsset = z.infer<typeof MediaAssetSchema>;

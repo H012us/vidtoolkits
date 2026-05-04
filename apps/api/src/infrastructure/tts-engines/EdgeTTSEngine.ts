@@ -1,4 +1,4 @@
-import { MsEdgeTTS } from 'edge-tts-node';
+import { MsEdgeTTS, OUTPUT_FORMAT } from 'edge-tts-node';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { ITTSEngine, TTSResult, Voice } from '@vidtoolkits/shared';
@@ -27,6 +27,7 @@ export class EdgeTTSEngine implements ITTSEngine {
     const voiceName = voice ?? DEFAULT_VOICE;
 
     try {
+      await this.tts.setMetadata(voiceName, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
       await this.tts.toFile(outputPath, text, { pitch: '+0Hz', rate: '+0%', volume: '+0%' });
 
       const durationSeconds = await this.measureDuration(outputPath);
