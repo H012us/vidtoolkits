@@ -1,8 +1,8 @@
-# MVP 2 Testing Plan
+# MVP 2 & MVP 3 Testing Plan
 
 ## Overview
 
-Testing for MVP 2 features — server-synced settings, health checks, pipeline abort, and markdown template system. Three layers:
+Testing for MVP 2 features (server-synced settings, health checks, pipeline abort, template system) and MVP 3 (end-to-end video render). Four layers:
 
 | Layer | Owner | Scope |
 |-------|-------|-------|
@@ -198,3 +198,137 @@ Run `pnpm dev`, test manually.
 - Remotion unavailable error message now includes the checked path for clarity
 - All media provider `isAvailable()` methods now throw on non-200 instead of silently returning `false`
 - SettingsPage "Test" button shows inline green check (success) or red error message after clicking
+
+---
+
+## MVP 3: End-to-End Video Render Testing
+
+### Phase A: Unit Tests
+
+**A.1 PipelineOrchestrator — image download helper**
+
+| # | Test case | Setup | Pass criteria |
+|---|-----------|-------|---------------|
+| A.1.1 | `downloadImages()` downloads to local files | Mock `axios` to return PNG buffer | Files written to `workDir/images/`, paths returned |
+| A.1.2 | `downloadImages()` handles 404 gracefully | Mock 404 response | Returns empty array for that image, pipeline continues |
+| A.1.3 | `downloadImages()` uses correct extension from Content-Type | PNG response with `Content-Type: image/png` | File has `.png` extension |
+| A.1.4 | `downloadImages()` falls back to URL extension | No Content-Type header, URL ends in `.jpg` | File has `.jpg` extension |
+
+**A.2 PipelineOrchestrator — temp cleanup**
+
+| # | Test case | Setup | Pass criteria |
+|---|-----------|-------|---------------|
+| A.2.1 | `cleanupWorkDir()` deletes directory | Temp dir with files | Directory removed, no error |
+| A.2.2 | `cleanupWorkDir()` handles missing dir | Nonexistent path | Resolves without throwing |
+
+**A.3 PipelineOrchestrator — process tracking on abort**
+
+| # | Test case | Setup | Pass criteria |
+|---|-----------|-------|---------------|
+| A.3.1 | `killAllProcesses()` kills tracked processes | Mock child processes | Each process `kill()` called once |
+| A.3.2 | Abort signal kills processes | `AbortController` with listeners | `killAllProcesses()` called before abort handler exits |
+
+**A.4 RenderService — job progress persistence**
+
+| # | Test case | Setup | Pass criteria |
+|---|-----------|-------|---------------|
+| A.4.1 | `sendProgress` callback updates job entity | Mock job, mock store | Job entity's `currentStep` and `progress` match last SSE event |
+| A.4.2 | `persistJobProgress()` saves to disk | Mock job store | `save()` called with updated entity |
+
+**A.5 VideoPlayer — inline playback**
+
+| # | Test case | Setup | Pass criteria |
+|---|-----------|-------|---------------|
+| A.5.1 | Renders `<video controls>` element | — | `video` tag present with `controls` attribute |
+| A.5.2 | `src` attribute set to downloadUrl | — | `video.src` matches prop |
+| A.5.3 | Download button still functional | — | `<a download>` present with correct href |
+
+**A.6 useSSE — reconnection**
+
+| # | Test case | Setup | Pass criteria |
+|---|-----------|-------|---------------|
+| A.6.1 | `onerror` schedules retry | Mock EventSource error | `setTimeout` called with backoff delay |
+| A.6.2 | Retries with exponential backoff | Two errors | Second retry delay > first |
+| A.6.3 | Stops retrying after max retries | 6 consecutive errors | `setTimeout` NOT called after 5th retry |
+| A.6.4 | `onopen` resets retry counter | Mock reconnect after error | Next error retries from count 0 |
+
+---
+
+### Phase B: SIT Tests
+
+**B.1 Image download integration (mock HTTP)**
+
+| # | Test case | Pass criteria |
+|---|-----------|---------------|
+| B.1.1 | `POST /api/render/:id/start` → images downloaded before RENDER_VIDEO | In mock mode, verify `workDir/images/` files exist before `spawnRemotionServer` call |
+| B.1.2 | Failed image download doesn't block pipeline | At least one image returns 404 → pipeline continues with other images |
+
+**B.2 Temp cleanup integration**
+
+| # | Test case | Pass criteria |
+|---|-----------|---------------|
+| B.2.1 | `workDir/` deleted after `DELIVER_RESULT` | After `type: 'complete'` SSE event, `fs.exists(workDir)` is false |
+| B.2.2 | `workDir/` deleted on pipeline error | After `type: 'error'` SSE event, `workDir/` is also deleted |
+
+**B.3 Render button health gate**
+
+| # | Test case | Pass criteria |
+|---|-----------|---------------|
+| B.3.1 | `POST /api/render/:id/start` returns 503 when FFmpeg unavailable | Mock binary check to fail, verify 503 response |
+| B.3.2 | `POST /api/render/:id/start` returns 503 when no image provider configured | No pixabay/pexels/unsplash key, verify 503 response |
+
+**B.4 Job progress during execution**
+
+| # | Test case | Pass criteria |
+|---|-----------|---------------|
+| B.4.1 | Job file on disk updated at each step | Start render, check job JSON at 3 points during pipeline — `currentStep` and `progress` change |
+| B.4.2 | Job file updated on abort | `DELETE /api/render/:id` → job JSON shows `status: 'failed'` with `error: 'Cancelled by user'` |
+
+---
+
+### Phase C: UAT (user-executed)
+
+Run `pnpm dev:api && pnpm dev:web`. Voicebox must be running at `http://localhost:8000` before testing.
+
+**UAT C.1 — End-to-end render (smoke test)**
+- Upload a markdown file with 2 parts and valid keywords (`sunset`, `ocean` for part 1; `mountain`, `forest` for part 2)
+- Click "Check Readiness" → verify all green
+- Click "Render Video"
+- Watch SSE log: all 7 steps appear in order
+- Wait for `[COMPLETE]` in log
+- VideoPlayer appears → click play → video plays inline
+- Click "Download" → file downloads
+- Refresh page → VideoPlayer still shown (task 5)
+
+**UAT C.2 — Pipeline abort on error**
+- Create project with one part that has NO keywords
+- Start render → pipeline stops at FETCH_IMAGES, red error in log
+- Verify no partial video file in `data/output/`
+- Verify no `workDir/` left in `data/temp/`
+
+**UAT C.3 — Render cancel**
+- Start a render on a multi-part project
+- Click "Stop Render" while RENDER_VIDEO is running
+- Verify `[STOPPED]` in log
+- Verify FFmpeg/Remotion processes no longer in Task Manager
+
+**UAT C.4 — Render button health gate**
+- Remove FFmpeg from PATH (temporarily) or disable image providers
+- Open project → verify "Render Video" button is disabled
+- Tooltip or disabled state explains why
+
+**UAT C.5 — Voice selection (Edge-TTS)**
+- In Settings, ensure no Voicebox configured (or it's down)
+- Create project with voice set to `en-US-JennyNeural`
+- Render → TTS uses the selected voice (listen to output audio)
+- Verify Edge-TTS respects the voice parameter (task 4)
+
+**UAT C.6 — SSE reconnection**
+- Start a render
+- Disconnect network briefly (or kill the API process, restart it)
+- Verify SSE reconnects automatically and log continues updating
+- Render completes successfully despite the interruption
+
+**UAT C.7 — Per-part error visibility**
+- Start render with mixed project (one part with no images available for keywords, one valid)
+- Verify the failing part's card shows the error message directly (not just in the log scroll area)

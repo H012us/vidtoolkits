@@ -79,7 +79,40 @@ cd apps/web && pnpm test     # 15 web tests ✅
 2. FFmpeg is installed at `C:\Users\Raw\Downloads\Compressed\ffmpeg\bin\` — health check should show green
 3. Voicebox must be running at `http://localhost:8000` for its health check to show green
 4. Remaining UAT: 3.1 (settings), 3.3 (pipeline abort), 3.4 (render cancel), 3.5 (process log), 3.6 (template)
-5. After completing UAT, commit and push, then define MVP 3 scope
+5. MVP 3 defined: 13 tasks (6 critical path, 3 reliability, 3 UX polish, 1 smoke test). See CLAUDE.md for full task list. test.md updated with unit/SIT/UAT cases for MVP 3.
+
+## MVP 3 Planning Session (2026-05-04, continued)
+
+After committing the FFmpeg fix (`45cb292`), the MVP 3 scope was defined. Full codebase exploration (3 agents) revealed these key findings:
+
+### Critical gaps blocking end-to-end video render
+1. `rawMarkdown` bug — PipelineOrchestrator sets `rawMarkdown: entity.createdAt` instead of actual markdown text
+2. Images are remote URLs — `MediaAsset` has no local paths; Remotion can't reliably fetch remote images in headless Chromium; thumbnail URLs used (wrong resolution)
+3. FFmpeg path quoting — `execAsync('ffmpeg "${path}"')` breaks on Windows paths with spaces
+4. Edge-TTS ignores voice — `MsEdgeTTS.toFile()` never receives the voice parameter
+5. VideoPlayer hidden after refresh — `job?.outputPath` guard fails, `project.outputPath` ignored
+6. Render button not gated — always enabled regardless of health status
+
+### Reliability gaps
+7. Job entity never updated during execution — `setStep()` never called
+8. Temp workDir never cleaned — disk space leak after every render
+9. Abort doesn't kill child processes — FFmpeg/Remotion keep running after cancel
+
+### UX gaps
+10. No inline video playback — `<video>` tag missing, only download link
+11. No SSE reconnection — EventSource onerror closes without retry
+12. Per-part errors not visible in grid — log scroll only
+
+### Files that need changes for MVP 3
+- `apps/api/src/application/services/PipelineOrchestrator.ts` — tasks 1, 2, 3, 8, 9
+- `apps/api/src/domain/entities/VideoProjectEntity.ts` — task 1
+- `apps/api/src/application/services/RenderService.ts` — tasks 7, 9
+- `apps/api/src/infrastructure/tts-engines/EdgeTTSEngine.ts` — task 4
+- `apps/api/src/infrastructure/services/ProjectService.ts` — task 1
+- `apps/web/src/pages/ProjectPage.tsx` — tasks 5, 6, 12
+- `apps/web/src/components/VideoPlayer.tsx` — task 10
+- `apps/web/src/hooks/useSSE.ts` — task 11
+- `apps/web/src/components/RenderProgress.tsx` — task 12
 
 ## Starting Point
 

@@ -54,6 +54,42 @@
    - `POST /api/projects/from-template` — create project from markdown body
    - Template includes: YAML frontmatter, annotated part sections, keyword tips, style guide, usage tips
 
+### MVP 3 — End-to-End Video Render (IN PROGRESS) 🔄
+**Goal:** Successfully generate a playable MP4 video from a markdown script.
+
+**Critical path tasks (must complete before any video can render):**
+
+| # | Task | File(s) | Bug/Issue | Status |
+|---|------|---------|-----------|--------|
+| 1 | Fix `rawMarkdown` field | `VideoProjectEntity.ts`, `PipelineOrchestrator.ts`, `ProjectService.ts` | Orchestrator sets `rawMarkdown: createdAt` (timestamp), entity has no `rawMarkdown` field | PENDING |
+| 2 | Download images locally for Remotion | `PipelineOrchestrator.ts` | `MediaAsset` has remote URLs; Remotion in headless Chromium can't fetch thumbnails reliably; `buildCompositionsData` uses tiny thumbnails | PENDING |
+| 3 | Fix FFmpeg path quoting on Windows | `PipelineOrchestrator.ts` (`postProcessVideo`) | String interpolation `execAsync('ffmpeg "${path}"')` breaks on paths with spaces | PENDING |
+| 4 | Pass voice parameter to Edge-TTS | `EdgeTTSEngine.ts` | `MsEdgeTTS.toFile()` never receives the `voice` option — all Edge-TTS uses default voice | PENDING |
+| 5 | VideoPlayer shown after page refresh | `ProjectPage.tsx` | Condition `job?.outputPath` is null after refresh; `project.outputPath` exists but ignored | PENDING |
+| 6 | Gate Render button on health status | `ProjectPage.tsx` | "Render Video" always enabled; server returns `SERVICE_UNAVAILABLE` after user waits | PENDING |
+
+**Reliability tasks:**
+
+| # | Task | File(s) | Bug/Issue | Status |
+|---|------|---------|-----------|--------|
+| 7 | Persist job progress during execution | `RenderService.ts`, `PipelineOrchestrator.ts` | `RenderJobEntity.setStep()` never called; job file stays `{progress: 0}` during render | PENDING |
+| 8 | Cleanup temp workDir after pipeline | `PipelineOrchestrator.ts` | `workDir/` (images, TTS files, remotion-entry.tsx) never deleted; disk space leak | PENDING |
+| 9 | Kill child processes on abort | `PipelineOrchestrator.ts`, `RenderService.ts` | `AbortController` only aborts async loop; FFmpeg/Remotion exec'd processes keep running | PENDING |
+
+**UX polish tasks:**
+
+| # | Task | File(s) | Bug/Issue | Status |
+|---|------|---------|-----------|--------|
+| 10 | Inline video playback | `VideoPlayer.tsx` | Only a download link; no `<video>` element | PENDING |
+| 11 | SSE reconnection with backoff | `useSSE.ts` | `EventSource.onerror` closes connection with no reconnect | PENDING |
+| 12 | Per-part error display | `RenderProgress.tsx`, `ProjectPage.tsx` | Error messages only in log scroll area; not shown in part cards | PENDING |
+
+**Verification task:**
+
+| # | Task | Status |
+|---|------|--------|
+| 13 | Smoke test: render a complete video from upload → SSE → playable MP4 | PENDING |
+
 ## Project Overview
 
 A web app that converts markdown scripts into videos using AI-generated voice-over and free stock imagery.
