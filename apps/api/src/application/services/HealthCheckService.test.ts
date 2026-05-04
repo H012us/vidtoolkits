@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import axios from 'axios';
 import { HealthCheckService } from './HealthCheckService.js';
 import { container } from '../../infrastructure/container.js';
 import type { DetailedHealth } from './HealthCheckService.js';
 
+vi.mock('axios');
+
 describe('HealthCheckService', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    container.register('IMediaProvider[]', [] as any);
   });
 
   describe('check()', () => {
@@ -65,7 +67,7 @@ describe('HealthCheckService', () => {
 
     it('binaries.ffmpeg unavailable when exec fails', async () => {
       const service = new HealthCheckService();
-      vi.spyOn(service, 'check').mockResolvedValue(makeHealth({ binaries: { ffmpeg: { available: false, error: 'not found' }, ffprobe: { available: true } } }));
+      vi.spyOn(service, 'check').mockResolvedValue(makeHealth({ binaries: { ffmpeg: { available: false, error: 'ffmpeg not found in PATH. Install it and ensure the directory is in your system PATH.' }, ffprobe: { available: true } } }));
       const result = await service.check();
       expect(result.binaries.ffmpeg.available).toBe(false);
     });
@@ -79,25 +81,29 @@ describe('HealthCheckService', () => {
 
     it('remotion unavailable when package.json missing', async () => {
       const service = new HealthCheckService();
-      vi.spyOn(service, 'check').mockResolvedValue(makeHealth({ remotion: { available: false, error: 'Remotion directory not found' } }));
+      vi.spyOn(service, 'check').mockResolvedValue(makeHealth({ remotion: { available: false, error: 'Remotion directory not found at "/path/to/remotion". Ensure the remotion/ folder exists in the project root.' } }));
       const result = await service.check();
       expect(result.remotion.available).toBe(false);
     });
   });
 
   describe('testProvider()', () => {
-    it('returns not found for unknown provider', async () => {
+    it('returns configured=false when no API key in settings', async () => {
+      const mockSettingsService = { get: vi.fn().mockResolvedValue({ pixabayKey: '', pexelsKey: '', unsplashKey: '', voicePreviewVoice: 'en-US-AriaNeural' }) };
+      container.register('SettingsService', mockSettingsService as any);
+
       const service = new HealthCheckService();
-      const result = await service.testProvider('unknownprovider');
-      expect(result.name).toBe('unknownprovider');
+      const result = await service.testProvider('pixabay');
+      expect(result.name).toBe('pixabay');
       expect(result.configured).toBe(false);
       expect(result.available).toBe(false);
-      expect(result.error).toBe('Provider not found');
+      expect(result.error).toBe('API key not configured');
     });
 
-    it('returns provider health for known provider', async () => {
-      const mockProvider = { name: 'pixabay', isAvailable: vi.fn().mockResolvedValue(true) };
-      container.register('IMediaProvider[]', [mockProvider] as any);
+    it('returns configured=true and available=true when key is set and provider responds', async () => {
+      const mockSettingsService = { get: vi.fn().mockResolvedValue({ pixabayKey: 'test-key', pexelsKey: '', unsplashKey: '', voicePreviewVoice: 'en-US-AriaNeural' }) };
+      container.register('SettingsService', mockSettingsService as any);
+      vi.mocked(axios.get).mockResolvedValue({ status: 200 });
 
       const service = new HealthCheckService();
       const result = await service.testProvider('pixabay');
@@ -106,14 +112,15 @@ describe('HealthCheckService', () => {
       expect(result.available).toBe(true);
     });
 
-    it('returns available false when provider throws', async () => {
-      const mockProvider = { name: 'pixabay', isAvailable: vi.fn().mockRejectedValue(new Error('Network error')) };
-      container.register('IMediaProvider[]', [mockProvider] as any);
+    it('returns available=false with error when provider throws', async () => {
+      const mockSettingsService = { get: vi.fn().mockResolvedValue({ pixabayKey: 'bad-key', pexelsKey: '', unsplashKey: '', voicePreviewVoice: 'en-US-AriaNeural' }) };
+      container.register('SettingsService', mockSettingsService as any);
+      vi.mocked(axios.get).mockRejectedValue(new Error('HTTP 403'));
 
       const service = new HealthCheckService();
       const result = await service.testProvider('pixabay');
       expect(result.available).toBe(false);
-      expect(result.error).toBe('Network error');
+      expect(result.error).toBe('HTTP 403');
     });
   });
 });

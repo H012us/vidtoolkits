@@ -10,15 +10,12 @@ export class PixabayProvider implements IMediaProvider {
 
   async isAvailable(): Promise<boolean> {
     if (!this.apiKey) return false;
-    try {
-      await axios.get('https://pixabay.com/api/', {
-        params: { key: this.apiKey, q: 'test', per_page: 1 },
-        timeout: 5000,
-      });
-      return true;
-    } catch {
-      return false;
-    }
+    const response = await axios.get('https://pixabay.com/api/', {
+      params: { key: this.apiKey, q: 'test', per_page: 1 },
+      timeout: 5000,
+    });
+    if (response.status !== 200) throw new Error(`HTTP ${response.status}`);
+    return true;
   }
 
   async search(keywords: string[], count = 5): Promise<MediaAsset[]> {

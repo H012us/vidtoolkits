@@ -5,6 +5,11 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { container } from '../../infrastructure/container.js';
 import { CONFIG } from '../../infrastructure/config/index.js';
+import type { SettingsService } from './SettingsService.js';
+import { PixabayProvider } from '../../infrastructure/media-providers/PixabayProvider.js';
+import { PexelsProvider } from '../../infrastructure/media-providers/PexelsProvider.js';
+import { UnsplashProvider } from '../../infrastructure/media-providers/UnsplashProvider.js';
+import type { IMediaProvider } from '@vidtoolkits/shared';
 
 const execAsync = promisify(exec);
 
@@ -66,29 +71,24 @@ export class HealthCheckService {
   }
 
   async testProvider(providerName: string): Promise<ProviderHealth> {
-    const providers = container.getMediaProviders();
-    const provider = providers.find(p => p.name === providerName);
-    if (!provider) {
-      return { name: providerName, configured: false, available: false, error: 'Provider not found' };
+    const settings = await this.getSettings();
+    const keys: Record<string, string | undefined> = {
+      pixabay: settings.pixabayKey,
+      pexels: settings.pexelsKey,
+      unsplash: settings.unsplashKey,
+    };
+    const key = this.cleanKey(keys[providerName]);
+    if (!key) {
+      return { name: providerName, configured: false, available: false, error: 'API key not configured' };
     }
 
+    const provider = this.makeProvider(providerName, key);
     const start = Date.now();
     try {
       const available = await provider.isAvailable();
-      return {
-        name: providerName,
-        configured: true,
-        available,
-        latencyMs: Date.now() - start,
-      };
+      return { name: providerName, configured: true, available, latencyMs: Date.now() - start };
     } catch (err) {
-      return {
-        name: providerName,
-        configured: true,
-        available: false,
-        latencyMs: Date.now() - start,
-        error: (err as Error).message,
-      };
+      return { name: providerName, configured: true, available: false, latencyMs: Date.now() - start, error: (err as Error).message };
     }
   }
 
@@ -116,48 +116,50 @@ export class HealthCheckService {
   }
 
   private async checkImageProviders(): Promise<ProviderHealth[]> {
-    const providers = container.getMediaProviders();
+    const settings = await this.getSettings();
+    const keys: Record<string, string | undefined> = {
+      pixabay: settings.pixabayKey,
+      pexels: settings.pexelsKey,
+      unsplash: settings.unsplashKey,
+    };
     const results: ProviderHealth[] = [];
 
-    for (const provider of providers) {
+    for (const [name, key] of Object.entries(keys)) {
+      const cleanKey = this.cleanKey(key);
+      if (!cleanKey) {
+        results.push({ name, configured: false, available: false, error: 'API key not configured' });
+        continue;
+      }
+
+      const provider = this.makeProvider(name, cleanKey);
       const start = Date.now();
       try {
         const available = await provider.isAvailable();
-        results.push({
-          name: provider.name,
-          configured: true,
-          available,
-          latencyMs: Date.now() - start,
-        });
+        results.push({ name, configured: true, available, latencyMs: Date.now() - start });
       } catch (err) {
-        results.push({
-          name: provider.name,
-          configured: true,
-          available: false,
-          latencyMs: Date.now() - start,
-          error: (err as Error).message,
-        });
-      }
-    }
-
-    // Add providers that are registered but not configured
-    const configuredNames = new Set(results.map(r => r.name));
-    const envKeys: Array<[string, string | undefined]> = [
-      ['pixabay', CONFIG.imageProviders.pixabayKey],
-      ['pexels', CONFIG.imageProviders.pexelsKey],
-      ['unsplash', CONFIG.imageProviders.unsplashKey],
-    ];
-    for (const [name, key] of envKeys) {
-      if (!configuredNames.has(name)) {
-        if (key) {
-          results.push({ name, configured: true, available: false });
-        } else {
-          results.push({ name, configured: false, available: false, error: 'Not configured' });
-        }
+        results.push({ name, configured: true, available: false, latencyMs: Date.now() - start, error: (err as Error).message });
       }
     }
 
     return results;
+  }
+
+  private async getSettings() {
+    const settingsService = container.get<SettingsService>('SettingsService');
+    return settingsService.get();
+  }
+
+  private makeProvider(name: string, key: string): IMediaProvider {
+    switch (name) {
+      case 'pixabay': return new PixabayProvider(key);
+      case 'pexels': return new PexelsProvider(key);
+      case 'unsplash': return new UnsplashProvider(key);
+      default: throw new Error(`Unknown provider: ${name}`);
+    }
+  }
+
+  private cleanKey(key: string | undefined): string | undefined {
+    return key?.trim() ? key.trim() : undefined;
   }
 
   private async checkBinaries(): Promise<{ ffmpeg: BinaryHealth; ffprobe: BinaryHealth }> {
@@ -170,16 +172,50 @@ export class HealthCheckService {
 
   private async checkBinary(name: string, args: string[]): Promise<BinaryHealth> {
     try {
-      const { stdout } = await execAsync(`${name} ${args.join(' ')}`, { timeout: 5000 });
+      // Resolve the full path via `where` first, so we don't depend on the
+      // parent process's PATH (Node may inherit a different PATH than the
+      // user's system PATH on Windows).
+      const wherePath = await execAsync(`where.exe ${name}`, { timeout: 5000 })
+        .then(r => r.stdout.trim().split('\n')[0].trim())
+        .catch(() => null);
+      const binary = wherePath ?? name;
+
+      const { stdout } = await execAsync(`"${binary}" ${args.join(' ')}`, { timeout: 5000 });
       const versionMatch = stdout.match(/(?:version\s+)?(\d+\.\d+(?:\.\d+)?)/i);
       return {
         available: true,
         version: versionMatch ? versionMatch[1] : undefined,
       };
     } catch (err) {
+      const execError = err as NodeJS.ErrnoException;
+      const rawMsg = execError.message ?? '';
+      let hint = rawMsg;
+
+      // Strip the "Command failed: ..." prefix that exec attaches
+      const cmdPrefix = `Command failed: "${name}" ${args.join(' ')}\n`;
+      if (rawMsg.startsWith(cmdPrefix)) {
+        hint = rawMsg.slice(cmdPrefix.length);
+      } else {
+        const altPrefix = `Command failed: ${name} ${args.join(' ')}\n`;
+        if (rawMsg.startsWith(altPrefix)) {
+          hint = rawMsg.slice(altPrefix.length);
+        }
+      }
+
+      // Clean Windows CLI noise from the error message
+      hint = hint
+        .replace(/'[^']*' is not recognized as an internal or external command,?\r?\n?/gi, '')
+        .replace(/operable program or batch file\.?\r?\n?/gi, '')
+        .replace(/\r?\n+/g, ' ')
+        .trim();
+
+      if (!hint || hint.length < 3) {
+        hint = `${name} not found in PATH. Install it and ensure the directory is in your system PATH.`;
+      }
+
       return {
         available: false,
-        error: (err as Error).message,
+        error: hint,
       };
     }
   }
@@ -191,7 +227,7 @@ export class HealthCheckService {
       await fs.access(pkgPath);
       return { available: true };
     } catch {
-      return { available: false, error: 'Remotion directory not found' };
+      return { available: false, error: `Remotion directory not found at "${CONFIG.paths.remotionDir}". Ensure the remotion/ folder exists in the project root.` };
     }
   }
 }

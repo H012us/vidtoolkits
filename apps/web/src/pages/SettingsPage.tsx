@@ -168,6 +168,7 @@ function SystemHealthSection() {
   const [health, setHealth] = useState<DetailedHealth | null>(null);
   const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState<string | null>(null);
+  const [testFeedback, setTestFeedback] = useState<Record<string, { success: boolean; error?: string } | null>>({});
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -187,13 +188,20 @@ function SystemHealthSection() {
 
   const testProvider = async (name: string) => {
     setTesting(name);
+    setTestFeedback(prev => ({ ...prev, [name]: null }));
     try {
-      await healthApi.testProvider(name);
+      const result = await healthApi.testProvider(name);
+      if (result.available) {
+        setTestFeedback(prev => ({ ...prev, [name]: { success: true } }));
+      } else {
+        setTestFeedback(prev => ({ ...prev, [name]: { success: false, error: result.error } }));
+      }
       await refresh();
-    } catch {
-      // ignore
+    } catch (err) {
+      setTestFeedback(prev => ({ ...prev, [name]: { success: false, error: (err as Error).message } }));
     } finally {
       setTesting(null);
+      setTimeout(() => setTestFeedback(prev => ({ ...prev, [name]: null })), 5000);
     }
   };
 
@@ -255,13 +263,20 @@ function SystemHealthSection() {
                 detail={p.latencyMs != null ? `${p.latencyMs}ms` : p.error}
               />
               {p.configured && (
-                <button
-                  onClick={() => testProvider(p.name)}
-                  disabled={testing === p.name}
-                  className="text-xs text-brand-400 hover:text-brand-300 disabled:opacity-50 transition-colors"
-                >
-                  {testing === p.name ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Test'}
-                </button>
+                <div className="flex items-center gap-2">
+                  {testFeedback[p.name]?.success != null && (
+                    testFeedback[p.name]!.success
+                      ? <CheckCircle className="h-3 w-3 text-green-400" />
+                      : <span className="text-xs text-red-400 max-w-24 truncate" title={testFeedback[p.name]!.error}>✗ {testFeedback[p.name]!.error ?? 'failed'}</span>
+                  )}
+                  <button
+                    onClick={() => testProvider(p.name)}
+                    disabled={testing === p.name}
+                    className="text-xs text-brand-400 hover:text-brand-300 disabled:opacity-50 transition-colors"
+                  >
+                    {testing === p.name ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Test'}
+                  </button>
+                </div>
               )}
             </div>
           ))}

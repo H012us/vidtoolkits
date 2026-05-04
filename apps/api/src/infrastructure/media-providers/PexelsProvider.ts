@@ -10,16 +10,13 @@ export class PexelsProvider implements IMediaProvider {
 
   async isAvailable(): Promise<boolean> {
     if (!this.apiKey) return false;
-    try {
-      await axios.get('https://api.pexels.com/v1/search', {
-        params: { query: 'test', per_page: 1 },
-        headers: { Authorization: this.apiKey },
-        timeout: 5000,
-      });
-      return true;
-    } catch {
-      return false;
-    }
+    const response = await axios.get('https://api.pexels.com/v1/search', {
+      params: { query: 'test', per_page: 1 },
+      headers: { Authorization: this.apiKey },
+      timeout: 5000,
+    });
+    if (response.status !== 200) throw new Error(`HTTP ${response.status}`);
+    return true;
   }
 
   async search(keywords: string[], count = 5): Promise<MediaAsset[]> {

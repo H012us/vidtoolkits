@@ -288,12 +288,21 @@ apps/web/src/
 
 ## Session / Resumption Notes
 
-- **Last updated:** 2026-05-02
-- **Latest commit:** `e61a3d2` (fix: align TemplateEditor, health/settings/template APIs to use shared axios client)
-- **Current state:** MVP 1 and MVP 2 complete. All code committed to GitHub master. No uncommitted changes.
-- **Pre-existing issues (not yet fixed):** Some API test files have type issues (logger.pino not a function, ProviderName type mismatches, vitest globals) — these were present before MVP 2 and do not affect runtime.
+- **Last updated:** 2026-05-04
+- **Latest commit:** `f712db5` (fix: load .env from project root + handle empty REMOTION_CONCURRENCY)
+- **Current state:** MVP 1 and MVP 2 complete. All code committed to GitHub master. API server and web UI run with: `pnpm dev:api` + `pnpm dev:web` (Remotion Studio has a pre-existing `defineConfig` breaking change — see below).
+- **Pre-existing issues:**
+  - Remotion Studio (`pnpm dev:remotion`) crashes on startup: `TypeError: (0, import_remotion.defineConfig) is not a function` — remotion 4.0.454 changed how `defineConfig` is exported. Run API and web separately: `pnpm dev:api` + `pnpm dev:web`.
+  - Some API test files have type issues (logger.pino not a function, ProviderName type mismatches, vitest globals) — pre-existing, do not affect runtime.
+- **Bugs fixed this session (2026-05-04):**
+  - `.env` root loading and `REMOTION_CONCURRENCY` empty-string crash fixed in prior session (2026-05-03).
+  - FFmpeg/FFprobe binary check showed "Command failed:..." error — `checkBinary()` now resolves the full binary path via `where.exe ${name}` first, then executes with the quoted full path. This makes the check independent of the Node.js parent process's inherited PATH.
+  - Remotion unavailable error message now includes the checked path (`CONFIG.paths.remotionDir`) for clearer debugging.
+  - `HealthCheckService.testProvider()` and `checkImageProviders()` now read API keys from `SettingsService` instead of the DI container, making health checks consistent with the persisted settings store.
+  - All media providers (`PixabayProvider`, `PexelsProvider`, `UnsplashProvider`) `isAvailable()` now throws on non-200 responses instead of silently returning `false` — health checks can now distinguish a configured-but-unavailable provider from a bad key.
+  - SettingsPage "Test" button now shows inline feedback (green check or red error) after clicking, not just a spinner.
 - **TemplateEditor component:** Used in both HomePage (modal overlay) and TemplatePage (modal). TemplatePage uses a dynamic `require('react-router-dom')` for `useNavigate` — unconventional but functional.
-- **How to resume:** Run `pnpm install && pnpm dev` to start all apps. GitHub repo: https://github.com/H012us/vidtoolkits
+- **How to resume:** Run `pnpm dev:api && pnpm dev:web` to start API and frontend. Voicebox must be running at `localhost:8000` for its health check to show green. FFmpeg installed at `C:\Users\Raw\Downloads\Compressed\ffmpeg\bin\` and added to PATH. GitHub repo: https://github.com/H012us/vidtoolkits
 - **Test suite:** 257 tests (210 unit + 32 SIT + 15 web). All passing.
   ```
   cd apps/api && pnpm test     # 210 unit tests
