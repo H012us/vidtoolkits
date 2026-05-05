@@ -54,7 +54,7 @@
    - `POST /api/projects/from-template` — create project from markdown body
    - Template includes: YAML frontmatter, annotated part sections, keyword tips, style guide, usage tips
 
-### MVP 3 — End-to-End Video Render (IN PROGRESS) 🔄
+### MVP 3 — End-to-End Video Render (VERIFICATION PHASE) 🔄
 **Goal:** Successfully generate a playable MP4 video from a markdown script.
 
 **Critical path tasks (must complete before any video can render):**
@@ -88,7 +88,7 @@
 
 | # | Task | Status |
 |---|------|--------|
-| 13 | Smoke test: render a complete video from upload → SSE → playable MP4 | PENDING |
+| 13 | Smoke test: render a complete video from upload → SSE → playable MP4 | READY — execute `pnpm dev:api` + `pnpm dev:web`, then run UAT C.1 (instructions in test.md) |
 
 ## Project Overview
 
@@ -350,7 +350,7 @@ apps/web/src/
   - `HealthCheckService.testProvider()` and `checkImageProviders()` now read API keys from `SettingsService` instead of the DI container, making health checks consistent with the persisted settings store.
   - All media providers (`PixabayProvider`, `PexelsProvider`, `UnsplashProvider`) `isAvailable()` now throws on non-200 responses instead of silently returning `false` — health checks can now distinguish a configured-but-unavailable provider from a bad key.
   - SettingsPage "Test" button now shows inline feedback (green check or red error) after clicking, not just a spinner.
-- **Test suite:** 257 tests (210 unit + 32 SIT + 15 web). All passing.
+- **Test suite:** 278 tests (220 unit + 36 SIT + 22 web). All passing. Phase A tests A.1–A.6 and Phase B tests B.1–B.4 written this session.
   ```
   cd apps/api && pnpm test     # 210 unit tests
   cd apps/api && pnpm test:uat # 32 SIT tests
@@ -359,7 +359,7 @@ apps/web/src/
 - **How to resume for smoke test (task 13):** Run `pnpm dev:api` + `pnpm dev:web`. Voicebox at `localhost:8000`, FFmpeg in PATH. Create project with 2 parts (valid keywords). Click Render Video. Verify all steps, video plays inline, persists after refresh.
 - **TemplateEditor component:** Used in both HomePage (modal overlay) and TemplatePage (modal). TemplatePage uses a dynamic `require('react-router-dom')` for `useNavigate` — unconventional but functional.
 - **How to resume:** Run `pnpm dev:api && pnpm dev:web` to start API and frontend. Voicebox must be running at `localhost:8000` for its health check to show green. FFmpeg installed at `C:\Users\Raw\Downloads\Compressed\ffmpeg\bin\` and added to PATH. GitHub repo: https://github.com/H012us/vidtoolkits
-- **Test suite:** 257 tests (210 unit + 32 SIT + 15 web). All passing.
+- **Test suite:** 278 tests (220 unit + 36 SIT + 22 web). All passing. Phase A tests A.1–A.6 and Phase B tests B.1–B.4 written this session.
   ```
   cd apps/api && pnpm test     # 210 unit tests
   cd apps/api && pnpm test:uat # 32 SIT tests

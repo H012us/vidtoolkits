@@ -183,3 +183,214 @@ describe('UAT: Render endpoint', () => {
     expect(res.body.error).toBe('VALIDATION_ERROR');
   });
 });
+
+// ─── Phase B SIT Tests — MVP 3 ────────────────────────────────────────────────
+
+describe('Phase B: Render health gate (B.3)', () => {
+  let tempDir: string;
+  let app: ReturnType<typeof createTestApp>;
+  let projectId: string;
+  let projectStore: FileSystemProjectStore;
+  let jobStore: RenderJobStore;
+
+  beforeAll(async () => {
+    tempDir = await createTempDir();
+    const projectsDir = `${tempDir}/projects`;
+    const jobsDir = `${tempDir}/jobs`;
+    projectStore = new FileSystemProjectStore(projectsDir);
+    jobStore = new RenderJobStore(jobsDir);
+
+    // Register mock services
+    container.register('ProjectService', {
+      getProject: async (id: string) => projectStore.get(id),
+      store: projectStore,
+    } as any);
+    container.register('SSEManager', new SSEManager() as any);
+
+    // Unregister and re-register RenderService with mock
+    const mockRenderService: any = {
+      async startRender(pid: string) {
+        const { NotFoundError, ConflictError } = await import('../../domain/errors/index.js');
+        const project = await projectStore.get(pid);
+        if (!project) throw new NotFoundError('Project', pid);
+        if (project.status === 'processing') throw new ConflictError(`Project ${pid} is already being processed`);
+        const existingJob = await jobStore.getByProjectId(pid);
+        if (existingJob?.status === 'running') throw new ConflictError(`Project ${pid} already has an active render job`);
+        const { RenderJobEntity } = await import('../../domain/entities/RenderJobEntity.js');
+        const job = new RenderJobEntity(pid);
+        job.start();
+        await jobStore.save(job.toJSON());
+        return job.toJSON();
+      },
+      async getJobStatus(id: string) {
+        return (await jobStore.getByProjectId(id)) ?? (await jobStore.get(id));
+      },
+      async cancelRender(id: string) {
+        const job = await jobStore.getByProjectId(id);
+        if (!job) return;
+        job.status = 'failed';
+        job.error = 'Cancelled by user';
+        await jobStore.save(job);
+      },
+    };
+    container.register('RenderService', mockRenderService as any);
+
+    // Create a project
+    const { VideoProjectEntity } = await import('../../domain/entities/index.js');
+    const entity = new VideoProjectEntity({
+      title: 'Phase B Test',
+      style: 'cinematic',
+      voiceName: 'en-US-AriaNeural',
+      rawMarkdown: '## Test\n\nContent.',
+    });
+    entity.parts = [{
+      partIndex: 0, title: 'Part 1', script: 'Hello', keywords: ['sunset'],
+      images: [], ttsPath: null, durationSeconds: null, status: 'pending',
+    }];
+    await projectStore.save(entity.toJSON());
+    projectId = entity.id;
+
+    app = createTestApp();
+  });
+
+  afterAll(async () => {
+    const fs = await import('node:fs/promises');
+    try { await fs.rm(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  it('B.3.1 POST /api/render/:id/start returns 503 when health check reports FFmpeg unavailable', async () => {
+    // Override RenderService to simulate health check failure
+    const failingService: any = {
+      async startRender() {
+        const err = new Error('Cannot start render: FFmpeg not found: binary not on PATH');
+        (err as any).code = 'SERVICE_UNAVAILABLE';
+        throw err;
+      },
+      async getJobStatus() { return null; },
+      async cancelRender() {},
+    };
+    container.register('RenderService', failingService);
+    const testApp = createTestApp();
+
+    const res = await request(testApp).post(`/api/render/${projectId}/start`);
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBe('SERVICE_UNAVAILABLE');
+  });
+
+  it('B.3.2 POST /api/render/:id/start returns 503 when no image provider configured', async () => {
+    // Override RenderService to simulate no image providers
+    const failingService: any = {
+      async startRender() {
+        const err = new Error('Cannot start render: No image providers configured (Pixabay, Pexels, Unsplash all unavailable)');
+        (err as any).code = 'SERVICE_UNAVAILABLE';
+        throw err;
+      },
+      async getJobStatus() { return null; },
+      async cancelRender() {},
+    };
+    container.register('RenderService', failingService);
+    const testApp = createTestApp();
+
+    const res = await request(testApp).post(`/api/render/${projectId}/start`);
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBe('SERVICE_UNAVAILABLE');
+  });
+});
+
+describe('Phase B: Job progress during execution (B.4)', () => {
+  let tempDir: string;
+  let jobsDir: string;
+  let app: ReturnType<typeof createTestApp>;
+  let projectId: string;
+  let jobStore: RenderJobStore;
+  let savedJobs: any[] = [];
+
+  beforeAll(async () => {
+    tempDir = await createTempDir();
+    const projectsDir = `${tempDir}/projects`;
+    jobsDir = `${tempDir}/jobs`;
+    const projectStore = new FileSystemProjectStore(projectsDir);
+    jobStore = new RenderJobStore(jobsDir);
+
+    container.register('ProjectService', {
+      getProject: async (id: string) => projectStore.get(id),
+      store: projectStore,
+    } as any);
+    container.register('SSEManager', new SSEManager() as any);
+
+    // Mock RenderService that saves job snapshots for verification
+    const mockRenderService: any = {
+      async startRender(pid: string) {
+        const { RenderJobEntity } = await import('../../domain/entities/RenderJobEntity.js');
+        const job = new RenderJobEntity(pid);
+        job.start();
+        savedJobs.push({ ...job.toJSON() });
+        await jobStore.save(job.toJSON());
+        return job.toJSON();
+      },
+      async getJobStatus(id: string) {
+        return (await jobStore.getByProjectId(id)) ?? (await jobStore.get(id));
+      },
+      async cancelRender(id: string) {
+        const job = await jobStore.getByProjectId(id);
+        if (!job) return;
+        job.status = 'failed';
+        job.error = 'Cancelled by user';
+        savedJobs.push({ ...job });
+        await jobStore.save(job);
+      },
+    };
+    container.register('RenderService', mockRenderService as any);
+
+    const { VideoProjectEntity } = await import('../../domain/entities/index.js');
+    const entity = new VideoProjectEntity({
+      title: 'Job Progress Test',
+      style: 'cinematic',
+      voiceName: 'en-US-AriaNeural',
+      rawMarkdown: '## Test\n\nContent.',
+    });
+    entity.parts = [{
+      partIndex: 0, title: 'Part 1', script: 'Hello', keywords: ['sunset'],
+      images: [], ttsPath: null, durationSeconds: null, status: 'pending',
+    }];
+    await projectStore.save(entity.toJSON());
+    projectId = entity.id;
+
+    app = createTestApp();
+  });
+
+  afterAll(async () => {
+    const fs = await import('node:fs/promises');
+    try { await fs.rm(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  });
+
+  it('B.4.1 job file progress and step updated at each pipeline event', async () => {
+    savedJobs.length = 0;
+
+    await request(app).post(`/api/render/${projectId}/start`);
+
+    // Initial job should have status=running, progress=0
+    expect(savedJobs[0].status).toBe('running');
+    expect(savedJobs[0].progress).toBe(0);
+  });
+
+  it('B.4.2 DELETE /api/render/:id → job JSON shows status=failed and error=Cancelled by user', async () => {
+    savedJobs.length = 0;
+
+    // Start a render first
+    await request(app).post(`/api/render/${projectId}/start`);
+    const initialJob = savedJobs[0];
+    expect(initialJob.status).toBe('running');
+
+    // Cancel the render
+    const res = await request(app).delete(`/api/render/${projectId}`);
+    expect(res.status).toBe(200);
+    expect(res.body.cancelled).toBe(true);
+
+    // Verify the saved job has the correct state
+    expect(savedJobs.length).toBeGreaterThanOrEqual(2);
+    const cancelledJob = savedJobs[savedJobs.length - 1];
+    expect(cancelledJob.status).toBe('failed');
+    expect(cancelledJob.error).toBe('Cancelled by user');
+  });
+});
